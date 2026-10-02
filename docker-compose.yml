@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: reservio-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reservio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reservio}
+      POSTGRES_DB: ${POSTGRES_DB:-reservio}
+    ports:
+      - "5433:5432"                    # ← host:container (5433 على الـ host)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - reservio-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: reservio-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+    ports:
+      - "6380:6379"                    # ← host:container (6380 على الـ host)
+    volumes:
+      - redis_data:/data
+    networks:
+      - reservio-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  reservio-network:
+    driver: bridge
