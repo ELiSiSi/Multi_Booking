@@ -38,3 +38,12 @@ coverage/
 
 # Docker volumes (local)
 .docker-data/
+
+
+
+# ─── Personal / Local Files ───────────────────────────────────
+# ملفات شخصية — لا ترسل للـ repo
+اكواد_المشروع.md
+plan.html
+خريطة_المشروع.html
+CODE_COLLECTION.md
