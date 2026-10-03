@@ -1,4 +1,4 @@
-﻿import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 
 import registerCors from './plugins/cors.js';
 import registerErrorHandler from './plugins/error-handler.js';
@@ -28,7 +28,7 @@ export async function buildApp(): Promise<FastifyInstance> {
             }
           : undefined,
     },
-    trustProxy: true,
+    trustProxy: false,
   });
 
   // ─── Plugins (order matters) ─────────────────────────────

@@ -1,4 +1,4 @@
-﻿import { Worker } from 'bullmq';
+import { UnrecoverableError, Worker } from 'bullmq';
 import pino from 'pino';
 
 import { loadEnv } from '@reservio/config';
@@ -68,10 +68,11 @@ async function main(): Promise<void> {
           break;
 
         default:
-          logger.warn(
-            { jobName: job.name },
-            'Unknown job name — skipping',
+          logger.error(
+            { jobName: job.name, jobId: job.id },
+            'Unknown job name',
           );
+          throw new UnrecoverableError(`Unknown booking job: ${job.name}`);
       }
     },
     {
