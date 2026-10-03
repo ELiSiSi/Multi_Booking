@@ -12,23 +12,23 @@ export const bookingQueue: Queue =
   new Queue('booking-jobs', {
     connection,
     defaultJobOptions: {
-      // Retry policy: 3 attempts with exponential backoff.
-      // 1st attempt: immediately
-      // 2nd attempt: ~5s after failure
-      // 3rd attempt: ~10s after failure
+     
+     
+     
+     
       attempts: 3,
       backoff: {
         type: 'exponential',
         delay: 5_000,
       },
 
-      // Keep a bounded history for debugging.
+     
       removeOnComplete: {
-        age: 3_600, // 1 hour
+        age: 3_600,
         count: 1_000,
       },
       removeOnFail: {
-        age: 86_400, // 24 hours
+        age: 86_400,
         count: 5_000,
       },
     },

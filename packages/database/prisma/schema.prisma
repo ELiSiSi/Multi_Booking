@@ -7,11 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─────────────────────────────────────────────
-// Phase 1: minimal schema — User + Business only.
-// Additional models are added in later phases.
-// ─────────────────────────────────────────────
-
 model User {
   id           String     @id @default(uuid()) @db.Uuid
   email        String     @unique
@@ -22,7 +17,8 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  businesses   Business[]
+  businesses    Business[]
+  refreshTokens RefreshToken[]
 
   @@map("User")
 }
@@ -43,7 +39,7 @@ model Business {
   name   String
   status BusinessStatus @default(ACTIVE)
 
-  // Scheduling policy (used in later phases)
+ 
   timezone                  String @default("UTC")
   slotGranularityMinutes    Int    @default(15)
   defaultBufferMinutes      Int    @default(0)
@@ -63,4 +59,21 @@ model Business {
 enum BusinessStatus {
   ACTIVE
   SUSPENDED
+}
+
+model RefreshToken {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?   @db.Uuid
+  userAgent    String?
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("RefreshToken")
 }

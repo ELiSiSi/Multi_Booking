@@ -33,7 +33,7 @@ const logger = pino({
 async function main(): Promise<void> {
   logger.info('Worker starting...');
 
-  // ─── Verify dependencies before consuming jobs ──────────
+  
   try {
     await prisma.$queryRaw`SELECT 1`;
     logger.info('Postgres connection verified');
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // ─── Create the BullMQ Worker ───────────────────────────
+  
   const worker = new Worker(
     'booking-jobs',
     async (job) => {
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
     },
   );
 
-  // ─── Worker events ──────────────────────────────────────
+  
   worker.on('ready', () => {
     logger.info(
       `Worker ready — concurrency=${env.WORKER_CONCURRENCY}, queue=booking-jobs`,
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
     logger.error({ err }, 'Worker error');
   });
 
-  // ─── Graceful shutdown ──────────────────────────────────
+  
   let shuttingDown = false;
 
   const shutdown = async (signal: string): Promise<void> => {

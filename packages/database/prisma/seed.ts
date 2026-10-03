@@ -4,7 +4,7 @@ const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
   console.log('🌱 Seed — Phase 1 skeleton (no fixtures yet)');
-  // Real seed data is added in Phase 3.
+ 
 }
 
 main()

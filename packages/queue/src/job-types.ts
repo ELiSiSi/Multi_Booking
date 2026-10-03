@@ -18,7 +18,7 @@ export interface BookingReminderPayload {
 }
 
 export interface IdempotencyCleanupPayload {
-  // No fields — the job operates on the entire table.
+ 
 }
 
 

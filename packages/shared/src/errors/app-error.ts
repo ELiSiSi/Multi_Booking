@@ -6,12 +6,7 @@ export interface AppErrorOptions {
   cause?: unknown;
 }
 
-/**
- * Base class for every error the application throws deliberately.
- *
- * `code` is the stable, machine-readable identifier the API exposes
- * to clients. It never changes once published.
- */
+
 export class AppError extends Error {
   public readonly code: string;
   public readonly httpStatus: number;

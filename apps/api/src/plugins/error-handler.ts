@@ -4,7 +4,7 @@ import { isAppError } from '@reservio/shared';
 export default fp(
   async (app) => {
     app.setErrorHandler((error, request, reply) => {
-      // ─── 1. AppError (our own errors) ────────────────────
+      
       if (isAppError(error)) {
         const logLevel = error.httpStatus >= 500 ? 'error' : 'warn';
 
@@ -27,13 +27,13 @@ export default fp(
         });
       }
 
-      // ─── 2. Normalize the remaining error into a known shape ─
+      
       const fastifyError = error as Error & {
         validation?: unknown;
         statusCode?: number;
       };
 
-      // ─── 3. Fastify validation errors ────────────────────
+      
       if (fastifyError.validation) {
         request.log.warn(
           { err: fastifyError, validation: fastifyError.validation },
@@ -49,7 +49,7 @@ export default fp(
         });
       }
 
-      // ─── 4. Any error with explicit 4xx statusCode ───────
+      
       if (
         fastifyError.statusCode !== undefined &&
         fastifyError.statusCode >= 400 &&
@@ -65,7 +65,7 @@ export default fp(
         });
       }
 
-      // ─── 5. Unknown errors ──────────────────────────────
+      
       request.log.error({ err: fastifyError }, 'Unhandled error');
 
       return reply.code(500).send({

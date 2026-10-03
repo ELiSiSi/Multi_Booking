@@ -8,7 +8,7 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const app = await buildApp();
 
-  // ─── Start listening ─────────────────────────────────────
+  
   try {
     await app.listen({
       port: env.API_PORT,
@@ -24,7 +24,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // ─── Graceful shutdown ──────────────────────────────────
+  
   let shuttingDown = false;
 
   const shutdown = async (signal: string): Promise<void> => {
@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
 
-  // ─── Fatal errors ────────────────────────────────────────
+  
   process.on('unhandledRejection', (reason) => {
     app.log.error({ reason }, 'Unhandled promise rejection');
     void shutdown('unhandledRejection');

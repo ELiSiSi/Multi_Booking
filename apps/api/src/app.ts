@@ -5,13 +5,6 @@ import registerErrorHandler from './plugins/error-handler.js';
 import registerHealth from './plugins/health.js';
 import registerSwagger from './plugins/swagger.js';
 
-/**
- * Build and configure the Fastify application.
- *
- * This function does NOT start the server. It only wires the
- * application together, so it can be reused in tests via
- * `app.inject(...)` without binding to a port.
- */
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -31,17 +24,17 @@ export async function buildApp(): Promise<FastifyInstance> {
     trustProxy: false,
   });
 
-  // ─── Plugins (order matters) ─────────────────────────────
+  
   await registerCors(app);
   await registerSwagger(app);
   await registerErrorHandler(app);
   await registerHealth(app);
 
-  // ─── Feature modules (added in later phases) ─────────────
-  // await app.register(identityModule, { prefix: '/api/v1' });
-  // await app.register(catalogModule, { prefix: '/api/v1' });
-  // await app.register(availabilityModule, { prefix: '/api/v1' });
-  // await app.register(bookingsModule, { prefix: '/api/v1' });
+  
+ 
+ 
+ 
+ 
 
   return app;
 }
