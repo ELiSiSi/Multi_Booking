@@ -4,6 +4,7 @@ import { isAppError } from '@reservio/shared';
 export default fp(
   async (app) => {
     app.setErrorHandler((error, request, reply) => {
+      // ─── 1. AppError (our own errors) ────────────────────
       if (isAppError(error)) {
         const logLevel = error.httpStatus >= 500 ? 'error' : 'warn';
 
@@ -26,42 +27,46 @@ export default fp(
         });
       }
 
+      // ─── 2. Normalize the remaining error into a known shape ─
       const fastifyError = error as Error & {
         validation?: unknown;
         statusCode?: number;
       };
 
+      // ─── 3. Fastify validation errors ────────────────────
       if (fastifyError.validation) {
         request.log.warn(
-          { err: error, validation: fastifyError.validation },
+          { err: fastifyError, validation: fastifyError.validation },
           'Request validation failed',
         );
 
         return reply.code(400).send({
           error: {
             code: 'VALIDATION_ERROR',
-            message: error.message,
+            message: fastifyError.message,
             details: fastifyError.validation as Record<string, unknown>,
           },
         });
       }
 
+      // ─── 4. Any error with explicit 4xx statusCode ───────
       if (
         fastifyError.statusCode !== undefined &&
         fastifyError.statusCode >= 400 &&
         fastifyError.statusCode < 500
       ) {
-        request.log.warn({ err: error }, error.message);
+        request.log.warn({ err: fastifyError }, fastifyError.message);
 
         return reply.code(fastifyError.statusCode).send({
           error: {
             code: 'CLIENT_ERROR',
-            message: error.message,
+            message: fastifyError.message,
           },
         });
       }
 
-      request.log.error({ err: error }, 'Unhandled error');
+      // ─── 5. Unknown errors ──────────────────────────────
+      request.log.error({ err: fastifyError }, 'Unhandled error');
 
       return reply.code(500).send({
         error: {

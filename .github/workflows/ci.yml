@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  test:
+    name: Typecheck, Build, Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: reservio
+          POSTGRES_PASSWORD: reservio
+          POSTGRES_DB: reservio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U reservio -d reservio"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      API_PORT: 3000
+      API_HOST: 0.0.0.0
+      DATABASE_URL: postgresql://reservio:reservio@localhost:5432/reservio
+      REDIS_URL: redis://localhost:6379
+      ACCESS_TOKEN_PRIVATE_KEY: test-private-key-for-ci
+      ACCESS_TOKEN_PUBLIC_KEY: test-public-key-for-ci
+      JWT_ISSUER: reservio
+      JWT_AUDIENCE: reservio-api
+      WORKER_CONCURRENCY: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm --filter @reservio/database generate
+
+      - name: Run database migrations
+        run: pnpm --filter @reservio/database migrate:deploy
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm test

@@ -44,6 +44,10 @@ coverage/
 # ─── Personal / Local Files ───────────────────────────────────
 # ملفات شخصية — لا ترسل للـ repo
 اكواد_المشروع.md
+اكواد.md
 plan.html
 خريطة_المشروع.html
 CODE_COLLECTION.md
+# Personal notes
+*.md
+!README.md

@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "generate": "prisma generate",
     "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
-    "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "migrate:deploy": "prisma migrate deploy",
     "migrate:reset": "dotenv -e ../../.env -- prisma migrate reset --force",
     "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
     "studio": "dotenv -e ../../.env -- prisma studio"
