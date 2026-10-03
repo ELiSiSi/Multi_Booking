@@ -9,8 +9,13 @@ export async function registerIdentityModule(
 ): Promise<void> {
   const identity = await buildIdentityModule();
 
-  registerAuthRoutes(app, identity);
-  registerUserRoutes(app, identity);
+  await app.register(
+    async (scoped) => {
+      registerAuthRoutes(scoped, identity);
+      registerUserRoutes(scoped, identity);
+    },
+    { prefix: '/api/v1' },
+  );
 }
 
 export * from './identity.module.js';

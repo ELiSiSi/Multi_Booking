@@ -1,6 +1,6 @@
 # Reservio — Multi-Business Booking Platform
 
-> **Status:** Phase 1 complete (infrastructure + API shell). Feature modules (auth, catalog, availability, bookings) are Phase 2+.
+> **Status:** Phase 2 (Identity & Access) complete. Feature modules (catalog, availability, bookings) are Phase 3+.
 
 ---
 
@@ -20,61 +20,46 @@
 
 ---
 
-## Repository Layout
+## Repository Layout (Source Code Map)
 
-```
+```text
 Multi_Booking/
 ├── apps/
-│   └── api/                   # Fastify HTTP server (entry point)
-│       └── src/
-│           ├── app.ts          # buildApp() — wires all plugins, no port binding
-│           ├── server.ts       # main() — binds port, graceful shutdown
-│           └── plugins/
-│               ├── cors.ts         # @fastify/cors (dev: open, prod: locked)
-│               ├── swagger.ts      # OpenAPI spec + Swagger UI at /docs
-│               ├── error-handler.ts# Central error formatter (AppError -> JSON)
-│               └── health.ts       # GET /, GET /health, GET /ready
-├── packages/
-│   ├── config/                # Env validation (Zod schema)
-│   │   └── src/
-│   │       ├── env.schema.ts   # Zod schema — all required env vars
-│   │       ├── env.ts          # loadEnv() — parse + throw on invalid
-│   │       └── index.ts
-│   ├── shared/                # Cross-package primitives
-│   │   └── src/
-│   │       ├── errors/
-│   │       │   ├── app-error.ts    # AppError base class + isAppError()
-│   │       │   ├── domain-error.ts # DomainError (default 422)
-│   │       │   └── infra-error.ts  # InfraError (default 503)
-│   │       ├── result/
-│   │       │   └── result.ts       # ok() / err() / isOk() / isErr() — Result<T,E>
-│   │       └── utils/
-│   │           └── time.ts         # addMinutes, subtractMinutes, localToUtc,
-│   │                               # utcToLocalDate, isSameLocalDay (via Luxon)
-│   ├── database/              # Prisma client + schema
-│   │   ├── prisma/
-│   │   │   ├── schema.prisma   # User, Business models (cascade delete)
-│   │   │   └── seed.ts         # Phase 1 skeleton (no fixtures yet)
-│   │   └── src/
-│   │       ├── client.ts       # Singleton PrismaClient (globalThis pattern)
-│   │       └── index.ts
-│   ├── redis/                 # ioredis client
-│   │   └── src/
-│   │       ├── client.ts       # Singleton Redis + smart retry + closeRedis()
-│   │       └── index.ts
-│   └── queue/                 # BullMQ job queue
-│       └── src/
-│           ├── connection.ts   # Shared ioredis connection for BullMQ
-│           ├── job-types.ts    # JOB_NAMES + typed payloads
-│           ├── booking-queue.ts# bookingQueue singleton (globalThis pattern)
-│           └── index.ts
-├── tests/
-│   └── setup-env.ts            # Loads .env before Vitest runs
-├── docker-compose.yml          # postgres:16 (port 5433) + redis:7 (port 6380)
-├── .env.example                # Template — copy to .env and fill in keys
-├── vitest.config.ts            # Test runner config (forks pool, 30s timeout)
-├── tsconfig.base.json          # Shared TS options (strict, NodeNext, incremental)
-└── pnpm-workspace.yaml
+│   ├── api/                   # Fastify HTTP server (Entry point)
+│   │   ├── src/
+│   │   │   ├── plugins/       # Fastify plugins (cors, cookie, swagger, health, etc.)
+│   │   │   ├── modules/       # Domain Feature Modules (The core business logic)
+│   │   │   │   └── identity/  # Phase 2: Identity & Access Module
+│   │   │   │       ├── domain/          # Entities, Policies (Actor, Role, AuthPolicy)
+│   │   │   │       ├── repositories/    # DB Access (User, RefreshToken)
+│   │   │   │       ├── use-cases/       # App Logic (Login, Register, Refresh)
+│   │   │   │       └── routes/          # Fastify route handlers (auth, users)
+│   │   │   ├── app.ts         # buildApp() — wires all plugins and modules
+│   │   │   └── server.ts      # main() — binds port, graceful shutdown
+│   │   └── tests/             # API Integration tests
+│   │
+│   └── worker/                # Background job processor (BullMQ)
+│       ├── src/
+│       │   ├── jobs/          # Job handlers (reminders, expirations)
+│       │   └── worker.ts      # Worker initialization
+│       └── tests/             # Worker tests
+│
+├── packages/                  # Shared internal libraries (Monorepo)
+│   ├── config/                # Environment variable validation (Zod)
+│   ├── database/              # Prisma schema, migrations, and generated client
+│   │   └── prisma/
+│   │       ├── schema.prisma  # PostgreSQL Schema (User, Business, Token, etc.)
+│   │       └── migrations/    # Database migration history
+│   ├── queue/                 # BullMQ connection & Job type definitions
+│   ├── redis/                 # Shared ioredis client singleton
+│   └── shared/                # Cross-package utilities
+│       ├── src/
+│       │   ├── errors/        # Base Error classes (AppError, DomainError)
+│       │   ├── result/        # Monadic error handling (Result<T, E>)
+│       │   └── utils/         # Helpers (e.g., luxon time manipulation)
+│       └── tests/             # Shared logic tests
+│
+└── tests/                     # Global/E2E test setup
 ```
 
 ---
@@ -199,27 +184,29 @@ Use `postgres:5432` / `redis:6379` when everything runs inside Docker.
 
 ---
 
-## Test Coverage (Phase 1 — 187 tests, 100% pass)
+## Test Coverage (Phase 2 — 304 tests, 100% pass)
 
 | File                                         | Type        | Count |
 | -------------------------------------------- | ----------- | ----- |
 | `packages/config/tests/env-schema.test.ts`   | Unit        | 7     |
-| `packages/shared/tests/errors.test.ts`       | Unit        | ~45   |
-| `packages/shared/tests/result.test.ts`       | Unit        | ~25   |
-| `packages/shared/tests/time.test.ts`         | Unit        | ~35   |
-| `packages/redis/tests/client.test.ts`        | Integration | ~13   |
-| `packages/database/tests/client.test.ts`     | Integration | ~11   |
-| `packages/queue/tests/booking-queue.test.ts` | Integration | ~22   |
+| `packages/shared/tests/errors.test.ts`       | Unit        | 54    |
+| `packages/shared/tests/result.test.ts`       | Unit        | 29    |
+| `packages/shared/tests/time.test.ts`         | Unit        | 52    |
+| `packages/redis/tests/client.test.ts`        | Integration | 12    |
+| `packages/database/tests/client.test.ts`     | Integration | 11    |
+| `packages/queue/tests/booking-queue.test.ts` | Integration | 22    |
+| `apps/worker/tests/jobs.test.ts`             | Integration | 32    |
+| `apps/api/tests/health.test.ts`              | Integration | 13    |
+| `apps/api/modules/tests/identity.test.ts`    | Integration | 67    |
+| `apps/api/modules/tests/integration/refresh-rotation.test.ts` | Int | 5 |
 
 ---
 
-## What Is Not Built Yet (Phase 2+)
+## What Is Not Built Yet (Phase 3+)
 
-- `identityModule` — auth, JWT, session
 - `catalogModule` — services, resources
 - `availabilityModule` — slot generation, conflict detection
 - `bookingsModule` — booking lifecycle, state machine
-- Worker process (`apps/worker`) — processes BullMQ jobs
 - Frontend (`apps/web`)
 
 Feature module stubs are commented out in `app.ts` with their expected route prefixes.

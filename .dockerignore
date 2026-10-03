@@ -12,6 +12,8 @@ coverage
 .vscode
 .idea
 .DS_Store
+*.tsbuildinfo
+**/*.tsbuildinfo
 README.md
 tests
 **/*.test.ts

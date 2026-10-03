@@ -1,5 +1,6 @@
-﻿import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 
+import registerAuth from './plugins/auth.js';
 import registerCookie from './plugins/cookie.js';
 import registerCors from './plugins/cors.js';
 import registerErrorHandler from './plugins/error-handler.js';
@@ -29,6 +30,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // ─── Plugins (order matters) ─────────────────────────────
   await registerCors(app);
   await registerCookie(app);
+  await registerAuth(app);
   await registerSwagger(app);
   await registerErrorHandler(app);
   await registerHealth(app);

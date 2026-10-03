@@ -21,7 +21,7 @@ RUN pnpm install --frozen-lockfile
 COPY apps ./apps
 COPY packages ./packages
 
-RUN pnpm build
+RUN pnpm --filter @reservio/api... build
 
 ENV NODE_ENV=production
 EXPOSE 3000

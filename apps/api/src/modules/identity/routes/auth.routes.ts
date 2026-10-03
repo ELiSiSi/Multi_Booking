@@ -1,5 +1,4 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
-import '@fastify/cookie';
+﻿import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import { generateRefreshToken, REFRESH_TOKEN_TTL_S } from '../use-cases/_support.js';
 import type { IdentityModule } from '../identity.module.js';
@@ -27,6 +26,14 @@ const loginSchema = {
       email: { type: 'string', minLength: 1, maxLength: 320 },
       password: { type: 'string', minLength: 1, maxLength: 200 },
     },
+  },
+} as const;
+
+const emptyBodySchema = {
+  body: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {},
   },
 } as const;
 
@@ -62,7 +69,6 @@ export function registerAuthRoutes(
   app: FastifyInstance,
   identity: IdentityModule,
 ): void {
-  // ─── POST /auth/register ───────────────────────────────
   app.post(
     '/auth/register',
     { schema: registerSchema },
@@ -74,7 +80,6 @@ export function registerAuthRoutes(
       };
 
       const user = await identity.register.execute(body);
-
       const accessToken = app.jwt.sign({ sub: user.id, role: user.role });
 
       const fresh = generateRefreshToken();
@@ -94,7 +99,6 @@ export function registerAuthRoutes(
     },
   );
 
-  // ─── POST /auth/login ──────────────────────────────────
   app.post(
     '/auth/login',
     { schema: loginSchema },
@@ -102,7 +106,6 @@ export function registerAuthRoutes(
       const body = request.body as { email: string; password: string };
 
       const user = await identity.login.execute(body);
-
       const accessToken = app.jwt.sign({ sub: user.id, role: user.role });
 
       const fresh = generateRefreshToken();
@@ -122,38 +125,43 @@ export function registerAuthRoutes(
     },
   );
 
-  // ─── POST /auth/refresh ────────────────────────────────
-  app.post('/auth/refresh', async (request, reply) => {
-    const raw = request.cookies[REFRESH_COOKIE];
-    if (!raw) {
-      return reply.code(401).send({
-        error: {
-          code: 'INVALID_REFRESH_TOKEN',
-          message: 'Refresh token is invalid or has expired.',
-        },
+  app.post(
+    '/auth/refresh',
+    { schema: emptyBodySchema },
+    async (request, reply) => {
+      const raw = request.cookies[REFRESH_COOKIE];
+      if (!raw) {
+        return reply.code(401).send({
+          error: {
+            code: 'INVALID_REFRESH_TOKEN',
+            message: 'Refresh token is invalid or has expired.',
+          },
+        });
+      }
+
+      const { user, newRefreshToken } = await identity.refresh.execute({
+        rawRefreshToken: raw,
+        userAgent: request.headers['user-agent'],
       });
-    }
 
-    const { user, newRefreshToken } = await identity.refresh.execute({
-      rawRefreshToken: raw,
-      userAgent: request.headers['user-agent'],
-    });
+      const accessToken = app.jwt.sign({ sub: user.id, role: user.role });
+      setRefreshCookie(reply, newRefreshToken);
 
-    const accessToken = app.jwt.sign({ sub: user.id, role: user.role });
-    setRefreshCookie(reply, newRefreshToken);
+      return reply.send({ accessToken });
+    },
+  );
 
-    return reply.send({ accessToken });
-  });
+  app.post(
+    '/auth/logout',
+    { schema: emptyBodySchema },
+    async (request, reply) => {
+      const raw = request.cookies[REFRESH_COOKIE];
+      await identity.logout.execute({ rawRefreshToken: raw });
+      clearRefreshCookie(reply);
+      return reply.code(204).send();
+    },
+  );
 
-  // ─── POST /auth/logout ─────────────────────────────────
-  app.post('/auth/logout', async (request, reply) => {
-    const raw = request.cookies[REFRESH_COOKIE];
-    await identity.logout.execute({ rawRefreshToken: raw });
-    clearRefreshCookie(reply);
-    return reply.code(204).send();
-  });
-
-  // ─── GET /auth/me ──────────────────────────────────────
   app.get(
     '/auth/me',
     { preHandler: app.authenticate },
