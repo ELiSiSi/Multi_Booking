@@ -1,9 +1,11 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+﻿import Fastify, { type FastifyInstance } from 'fastify';
 
+import registerCookie from './plugins/cookie.js';
 import registerCors from './plugins/cors.js';
 import registerErrorHandler from './plugins/error-handler.js';
 import registerHealth from './plugins/health.js';
 import registerSwagger from './plugins/swagger.js';
+import { registerIdentityModule } from './modules/identity/index.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -24,17 +26,15 @@ export async function buildApp(): Promise<FastifyInstance> {
     trustProxy: false,
   });
 
-  
+  // ─── Plugins (order matters) ─────────────────────────────
   await registerCors(app);
+  await registerCookie(app);
   await registerSwagger(app);
   await registerErrorHandler(app);
   await registerHealth(app);
 
-  
- 
- 
- 
- 
+  // ─── Feature modules ─────────────────────────────────────
+  await registerIdentityModule(app);
 
   return app;
 }
