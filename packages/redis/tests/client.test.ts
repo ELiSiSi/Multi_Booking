@@ -18,8 +18,6 @@ describe('redis client', () => {
     if (keys.length > 0) {
       await redis.del(...keys);
     }
-
-    await closeRedis();
   });
 
   // ─────────────────────────────────────────────────────────
