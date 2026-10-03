@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -69,14 +69,14 @@ jobs:
       - name: Generate Prisma Client
         run: pnpm --filter @reservio/database generate
 
+      - name: Build
+        run: pnpm build
+
       - name: Run database migrations
         run: pnpm --filter @reservio/database migrate:deploy
 
       - name: Typecheck
         run: pnpm typecheck
-
-      - name: Build
-        run: pnpm build
 
       - name: Run tests
         run: pnpm test
