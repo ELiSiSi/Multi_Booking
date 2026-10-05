@@ -2,11 +2,11 @@
 
 import { prisma } from '@reservio/database';
 
-import { Argon2PasswordHasher, generateRefreshToken } from '../../../src/modules/identity/use-cases/_support.js';
-import { InvalidRefreshTokenError } from '../../../src/modules/identity/use-cases/identity.errors.js';
-import { RefreshTokenUseCase } from '../../../src/modules/identity/use-cases/refresh-token.use-case.js';
-import { UserRepository } from '../../../src/modules/identity/repositories/user.repository.js';
-import { RefreshTokenRepository } from '../../../src/modules/identity/repositories/refresh-token.repository.js';
+import { Argon2PasswordHasher, generateRefreshToken } from '../identity/use-cases/_support.js';
+import { InvalidRefreshTokenError } from '../identity/use-cases/identity.errors.js';
+import { RefreshTokenUseCase } from '../identity/use-cases/refresh-token.use-case.js';
+import { UserRepository } from '../identity/repositories/user.repository.js';
+import { RefreshTokenRepository } from '../identity/repositories/refresh-token.repository.js';
 
 const TEST_PREFIX = 'test-rotate-';
 

@@ -7,27 +7,40 @@ import registerErrorHandler from './plugins/error-handler.js';
 import registerHealth from './plugins/health.js';
 import registerSwagger from './plugins/swagger.js';
 import { registerIdentityModule } from './modules/identity/index.js';
+import { registerCatalogModule } from './modules/catalog/index.js';
+import { registerAvailabilityModule } from './modules/availability/index.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: {
-      level: process.env.NODE_ENV === 'development' ? 'info' : 'warn',
-      transport:
-        process.env.NODE_ENV === 'development'
-          ? {
-              target: 'pino-pretty',
-              options: {
-                colorize: true,
-                translateTime: 'HH:MM:ss',
-                ignore: 'pid,hostname',
-              },
-            }
-          : undefined,
-    },
+    logger:
+      process.env.VITEST === 'true'
+        ? false
+        : {
+            level: process.env.NODE_ENV === 'development' ? 'info' : 'warn',
+            transport:
+              process.env.NODE_ENV === 'development'
+                ? {
+                    target: 'pino-pretty',
+                    options: {
+                      colorize: true,
+                      translateTime: 'HH:MM:ss',
+                      ignore: 'pid,hostname',
+                    },
+                  }
+                : undefined,
+          },
     trustProxy: false,
+    ajv: {
+      customOptions: {
+        coerceTypes: false,
+        removeAdditional: false,
+        useDefaults: true,
+        allErrors: false,
+      },
+    },
   });
 
-  // ─── Plugins (order matters) ─────────────────────────────
+
   await registerCors(app);
   await registerCookie(app);
   await registerAuth(app);
@@ -35,8 +48,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerErrorHandler(app);
   await registerHealth(app);
 
-  // ─── Feature modules ─────────────────────────────────────
+
   await registerIdentityModule(app);
+  await registerCatalogModule(app);
+  await registerAvailabilityModule(app);
 
   return app;
 }

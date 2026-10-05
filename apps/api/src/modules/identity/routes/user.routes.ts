@@ -1,4 +1,4 @@
-﻿import '@fastify/cookie';
+import '@fastify/cookie';
 import type { FastifyInstance } from 'fastify';
 
 import type { IdentityModule } from '../identity.module.js';
@@ -7,7 +7,7 @@ export function registerUserRoutes(
   app: FastifyInstance,
   identity: IdentityModule,
 ): void {
-  // ─── GET /users/me ─────────────────────────────────────
+
   app.get(
     '/users/me',
     { preHandler: app.authenticate },

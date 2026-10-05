@@ -8,7 +8,7 @@ import {
   generateRefreshToken,
   sha256,
   type Actor,
-} from '../../src/modules/identity/use-cases/_support.js';
+} from '../src/modules/identity/use-cases/_support.js';
 
 import {
   EmailAlreadyRegisteredError,
@@ -16,15 +16,15 @@ import {
   InvalidCredentialsError,
   InvalidRefreshTokenError,
   UnauthenticatedError,
-} from '../../src/modules/identity/use-cases/identity.errors.js';
+} from '../src/modules/identity/use-cases/identity.errors.js';
 
-import { RegisterUserUseCase } from '../../src/modules/identity/use-cases/register-user.use-case.js';
-import { LoginUseCase } from '../../src/modules/identity/use-cases/login.use-case.js';
-import { RefreshTokenUseCase } from '../../src/modules/identity/use-cases/refresh-token.use-case.js';
-import { LogoutUseCase } from '../../src/modules/identity/use-cases/logout.use-case.js';
+import { RegisterUserUseCase } from '../src/modules/identity/use-cases/register-user.use-case.js';
+import { LoginUseCase } from '../src/modules/identity/use-cases/login.use-case.js';
+import { RefreshTokenUseCase } from '../src/modules/identity/use-cases/refresh-token.use-case.js';
+import { LogoutUseCase } from '../src/modules/identity/use-cases/logout.use-case.js';
 
-import type { UserRepository } from '../../src/modules/identity/repositories/user.repository.js';
-import type { RefreshTokenRepository } from '../../src/modules/identity/repositories/refresh-token.repository.js';
+import type { UserRepository } from '../src/modules/identity/repositories/user.repository.js';
+import type { RefreshTokenRepository } from '../src/modules/identity/repositories/refresh-token.repository.js';
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {

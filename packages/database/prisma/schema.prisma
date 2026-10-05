@@ -7,6 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─────────────────────────────────────────────────────────────
+// Identity & Access
+// ─────────────────────────────────────────────────────────────
+
 model User {
   id           String     @id @default(uuid()) @db.Uuid
   email        String     @unique
@@ -33,34 +37,6 @@ enum UserStatus {
   SUSPENDED
 }
 
-model Business {
-  id     String         @id @default(uuid()) @db.Uuid
-  ownerId String        @db.Uuid
-  name   String
-  status BusinessStatus @default(ACTIVE)
-
- 
-  timezone                  String @default("UTC")
-  slotGranularityMinutes    Int    @default(15)
-  defaultBufferMinutes      Int    @default(0)
-  pendingTimeoutMinutes     Int    @default(15)
-  cancellationWindowMinutes Int    @default(120)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-
-  @@index([ownerId, createdAt(sort: Desc), id(sort: Desc)])
-  @@index([status, createdAt(sort: Desc), id(sort: Desc)])
-  @@map("Business")
-}
-
-enum BusinessStatus {
-  ACTIVE
-  SUSPENDED
-}
-
 model RefreshToken {
   id           String    @id @default(uuid()) @db.Uuid
   userId       String    @db.Uuid
@@ -76,4 +52,182 @@ model RefreshToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("RefreshToken")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Business (Tenant)
+// ─────────────────────────────────────────────────────────────
+
+model Business {
+  id      String         @id @default(uuid()) @db.Uuid
+  ownerId String         @db.Uuid
+  name    String
+  status  BusinessStatus @default(ACTIVE)
+
+  timezone                  String @default("UTC")
+  slotGranularityMinutes    Int    @default(15)
+  defaultBufferMinutes      Int    @default(0)
+  pendingTimeoutMinutes     Int    @default(15)
+  cancellationWindowMinutes Int    @default(120)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner     User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  locations Location[]
+
+  @@index([ownerId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([status, createdAt(sort: Desc), id(sort: Desc)])
+  @@map("Business")
+}
+
+enum BusinessStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+// ─────────────────────────────────────────────────────────────
+// Catalog
+// ─────────────────────────────────────────────────────────────
+
+model Location {
+  id         String   @id @default(uuid()) @db.Uuid
+  businessId String   @db.Uuid
+  name       String
+  timezone   String?
+  address    String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business  Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  services  Service[]
+  resources Resource[]
+
+  @@unique([businessId, name])
+  @@index([businessId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([businessId, isActive])
+  @@map("Location")
+}
+
+model Service {
+  id              String   @id @default(uuid()) @db.Uuid
+  locationId      String   @db.Uuid
+  name            String
+  durationMinutes Int
+  priceCents      Int
+  currency        String   @default("USD")
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  location         Location          @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  serviceResources ServiceResource[]
+
+  @@unique([locationId, name])
+  @@index([locationId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([locationId, isActive])
+  @@map("Service")
+}
+
+model Resource {
+  id            String   @id @default(uuid()) @db.Uuid
+  locationId    String   @db.Uuid
+  name          String
+  bufferMinutes Int?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  location         Location          @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  serviceResources ServiceResource[]
+
+  availabilityRules      AvailabilityRule[]
+  availabilityExceptions AvailabilityException[]
+
+  @@unique([locationId, name])
+  @@index([locationId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([locationId, isActive])
+  @@map("Resource")
+}
+
+model ServiceResource {
+  serviceId  String   @db.Uuid
+  resourceId String   @db.Uuid
+  createdAt  DateTime @default(now())
+
+  service  Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, resourceId])
+  @@index([resourceId])
+  @@map("ServiceResource")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Availability
+//
+// Semantics (enforced at DB level via CHECK constraints in the
+// migration SQL, and at app level in the use cases):
+//
+//   AvailabilityRule.weekday        → 1..7  (1 = Monday, 7 = Sunday)
+//   AvailabilityRule.startTime      → "HH:mm" (00:00..23:59)
+//   AvailabilityRule.endTime        → "HH:mm" (00:00..23:59)
+//   startTime < endTime             → same-day windows only
+//   effectiveFrom <= effectiveTo    → when both present
+//
+//   AvailabilityException.type:
+//     CLOSED        → startTime = null, endTime = null
+//     CUSTOM_HOURS  → startTime != null, endTime != null, startTime < endTime
+//     BREAK         → startTime != null, endTime != null, startTime < endTime
+//
+//   Exception precedence (resolved in slot engine):
+//     CLOSED > CUSTOM_HOURS > BREAK
+// ─────────────────────────────────────────────────────────────
+
+model AvailabilityRule {
+  id            String               @id @default(uuid()) @db.Uuid
+  resourceId    String               @db.Uuid
+  weekday       Int
+  type          AvailabilityRuleType
+  startTime     String               @db.VarChar(5)
+  endTime       String               @db.VarChar(5)
+  effectiveFrom DateTime?            @db.Date
+  effectiveTo   DateTime?            @db.Date
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@index([resourceId, weekday])
+  @@index([resourceId, type])
+  @@map("AvailabilityRule")
+}
+
+enum AvailabilityRuleType {
+  OPEN
+  BREAK
+}
+
+model AvailabilityException {
+  id         String                    @id @default(uuid()) @db.Uuid
+  resourceId String                    @db.Uuid
+  date       DateTime                  @db.Date
+  type       AvailabilityExceptionType
+  startTime  String?                   @db.VarChar(5)
+  endTime    String?                   @db.VarChar(5)
+  reason     String?
+  createdAt  DateTime                  @default(now())
+  updatedAt  DateTime                  @updatedAt
+
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@index([resourceId, date])
+  @@map("AvailabilityException")
+}
+
+enum AvailabilityExceptionType {
+  CLOSED
+  CUSTOM_HOURS
+  BREAK
 }

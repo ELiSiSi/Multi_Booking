@@ -21,6 +21,13 @@ export class AuthorizationPolicy {
   ): boolean {
     return actor.role === 'admin' && ownedBusinessIds.has(businessId);
   }
+
+  isBookingOwner(
+    actorId: string,
+    booking: { customerId: string },
+  ): boolean {
+    return booking.customerId === actorId;
+  }
 }
 
 export class Argon2PasswordHasher implements PasswordHasher {
@@ -44,6 +51,10 @@ export class Argon2PasswordHasher implements PasswordHasher {
   }
 }
 
+export function sha256(input: string): string {
+  return createHash('sha256').update(input).digest('hex');
+}
+
 const REFRESH_TOKEN_BYTES = 48;
 
 export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -58,8 +69,4 @@ export function generateRefreshToken(): {
   const hash = sha256(raw);
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
   return { raw, hash, expiresAt };
-}
-
-export function sha256(input: string): string {
-  return createHash('sha256').update(input).digest('hex');
 }
