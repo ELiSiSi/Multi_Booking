@@ -80,8 +80,8 @@ export class IdempotencyRepository {
     const lockId = lockIdFromActorAndKey(actorId, key);
 
     return prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId}::bigint)`;
-      return fn(tx);
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId}::bigint)`;
+        return fn(tx);
     });
   }
 }

@@ -1,4 +1,3 @@
-
 export const JOB_NAMES = {
   PENDING_EXPIRATION: 'pending-expiration',
   BOOKING_REMINDER: 'booking-reminder',
@@ -7,20 +6,17 @@ export const JOB_NAMES = {
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES];
 
-
 export interface PendingExpirationPayload {
-  bookingId: string;
+  // The handler scans all pending bookings — no per-job data needed.
 }
 
-
 export interface BookingReminderPayload {
-  bookingId: string;
+  // The handler scans upcoming bookings — no per-job data needed.
 }
 
 export interface IdempotencyCleanupPayload {
- 
+  // Reserved for Post-V1.
 }
-
 
 export interface JobPayloadMap {
   [JOB_NAMES.PENDING_EXPIRATION]: PendingExpirationPayload;

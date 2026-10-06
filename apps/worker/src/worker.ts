@@ -5,13 +5,10 @@ import { loadEnv } from '@reservio/config';
 import { prisma } from '@reservio/database';
 import { connection, JOB_NAMES } from '@reservio/queue';
 import { redis } from '@reservio/redis';
-import {
-  type BookingReminderPayload,
-  type PendingExpirationPayload,
-} from '@reservio/queue';
 
 import { bookingReminderJob } from './jobs/booking-reminder.job.js';
 import { pendingBookingExpirationJob } from './jobs/pending-booking-expiration.job.js';
+import { startScheduler } from './scheduler.js';
 
 const env = loadEnv();
 
@@ -33,7 +30,6 @@ const logger = pino({
 async function main(): Promise<void> {
   logger.info('Worker starting...');
 
-  
   try {
     await prisma.$queryRaw`SELECT 1`;
     logger.info('Postgres connection verified');
@@ -50,21 +46,18 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  
+  await startScheduler(logger);
+
   const worker = new Worker(
     'booking-jobs',
     async (job) => {
       switch (job.name) {
         case JOB_NAMES.PENDING_EXPIRATION:
-          await pendingBookingExpirationJob(
-            job as Parameters<typeof pendingBookingExpirationJob>[0],
-          );
+          await pendingBookingExpirationJob(job);
           break;
 
         case JOB_NAMES.BOOKING_REMINDER:
-          await bookingReminderJob(
-            job as Parameters<typeof bookingReminderJob>[0],
-          );
+          await bookingReminderJob(job);
           break;
 
         default:
@@ -81,7 +74,6 @@ async function main(): Promise<void> {
     },
   );
 
-  
   worker.on('ready', () => {
     logger.info(
       `Worker ready — concurrency=${env.WORKER_CONCURRENCY}, queue=booking-jobs`,
@@ -103,7 +95,6 @@ async function main(): Promise<void> {
     logger.error({ err }, 'Worker error');
   });
 
-  
   let shuttingDown = false;
 
   const shutdown = async (signal: string): Promise<void> => {
