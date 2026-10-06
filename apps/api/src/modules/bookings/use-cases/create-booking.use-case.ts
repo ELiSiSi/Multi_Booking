@@ -69,100 +69,108 @@ export class CreateBookingUseCase {
     input: CreateBookingInput,
     externalTx?: Prisma.TransactionClient,
   ): Promise<CreateBookingOutput> {
-    const startAt = new Date(input.startAt);
-    if (Number.isNaN(startAt.getTime())) {
-      throw new InvalidBookingTimeError(
-        `Invalid startAt ISO string: "${input.startAt}"`,
-      );
-    }
-
-    if (startAt.getTime() <= Date.now()) {
-      throw new StartInPastError();
-    }
-
-    const context = await this.availabilityRepository.loadCatalogContext(
-      input.businessId,
-      input.locationId,
-      input.resourceId,
-      input.serviceId,
-    );
-
-    if (!context) {
-      throw new BookingContextNotFoundError();
-    }
-
-    const timezone = resolveTimezone(
-      context.location.timezone,
-      context.business.timezone,
-    );
-
-    const localDate = DateTime.fromJSDate(startAt, { zone: 'utc' })
-      .setZone(timezone)
-      .toISODate();
-
-    if (!localDate) {
-      throw new InvalidBookingTimeError('Could not resolve local date');
-    }
-
-    const dayStart = DateTime.fromISO(localDate, { zone: timezone })
-      .startOf('day')
-      .toUTC()
-      .toJSDate();
-    const dayEnd = DateTime.fromISO(localDate, { zone: timezone })
-      .endOf('day')
-      .toUTC()
-      .toJSDate();
-
-    const rules = await this.availabilityRepository.loadRules(
-      context.resource.id,
-    );
-    const exceptions = await this.availabilityRepository.loadExceptions(
-      context.resource.id,
-      localDate,
-    );
-    const activeBookings =
-      await this.availabilityRepository.loadActiveBookings(
-        context.resource.id,
-        dayStart,
-        dayEnd,
-      );
-
-    const engineInput: SlotEngineInput = {
-      timezone,
-      date: localDate,
-      service: {
-        id: context.service.id,
-        durationMinutes: context.service.durationMinutes,
-      },
-      resource: {
-        id: context.resource.id,
-        bufferMinutes: context.resource.bufferMinutes,
-      },
-      business: {
-        id: context.business.id,
-        slotGranularityMinutes: context.business.slotGranularityMinutes,
-        defaultBufferMinutes: context.business.defaultBufferMinutes,
-      },
-      rules,
-      exceptions,
-      bookings: activeBookings,
-    };
-
-    const slots = generateSlots(engineInput);
-    const requestedTime = startAt.getTime();
-    const isAvailable = slots.some((s) => s.startAt.getTime() === requestedTime);
-
-    if (!isAvailable) {
-      throw new SlotUnavailableError();
-    }
-
-    const lockId = advisoryLockIdFromResource(input.resourceId);
-
-    const runCreate = async (
+    const runAll = async (
       tx: Prisma.TransactionClient,
     ): Promise<Booking> => {
+      const startAt = new Date(input.startAt);
+      if (Number.isNaN(startAt.getTime())) {
+        throw new InvalidBookingTimeError(
+          `Invalid startAt ISO string: "${input.startAt}"`,
+        );
+      }
+
+      if (startAt.getTime() <= Date.now()) {
+        throw new StartInPastError();
+      }
+
+      // Pre-load using the SAME tx to avoid exhausting the pool.
+      const context = await this.availabilityRepository.loadCatalogContext(
+        input.businessId,
+        input.locationId,
+        input.resourceId,
+        input.serviceId,
+        tx,
+      );
+
+      if (!context) {
+        throw new BookingContextNotFoundError();
+      }
+
+      const timezone = resolveTimezone(
+        context.location.timezone,
+        context.business.timezone,
+      );
+
+      const localDate = DateTime.fromJSDate(startAt, { zone: 'utc' })
+        .setZone(timezone)
+        .toISODate();
+
+      if (!localDate) {
+        throw new InvalidBookingTimeError('Could not resolve local date');
+      }
+
+      const dayStart = DateTime.fromISO(localDate, { zone: timezone })
+        .startOf('day')
+        .toUTC()
+        .toJSDate();
+      const dayEnd = DateTime.fromISO(localDate, { zone: timezone })
+        .endOf('day')
+        .toUTC()
+        .toJSDate();
+
+      const rules = await this.availabilityRepository.loadRules(
+        context.resource.id,
+        tx,
+      );
+      const exceptions = await this.availabilityRepository.loadExceptions(
+        context.resource.id,
+        localDate,
+        tx,
+      );
+      const activeBookings =
+        await this.availabilityRepository.loadActiveBookings(
+          context.resource.id,
+          dayStart,
+          dayEnd,
+          tx,
+        );
+
+      const engineInput: SlotEngineInput = {
+        timezone,
+        date: localDate,
+        service: {
+          id: context.service.id,
+          durationMinutes: context.service.durationMinutes,
+        },
+        resource: {
+          id: context.resource.id,
+          bufferMinutes: context.resource.bufferMinutes,
+        },
+        business: {
+          id: context.business.id,
+          slotGranularityMinutes: context.business.slotGranularityMinutes,
+          defaultBufferMinutes: context.business.defaultBufferMinutes,
+        },
+        rules,
+        exceptions,
+        bookings: activeBookings,
+      };
+
+      const slots = generateSlots(engineInput);
+      const requestedTime = startAt.getTime();
+      const isAvailable = slots.some(
+        (s) => s.startAt.getTime() === requestedTime,
+      );
+
+      if (!isAvailable) {
+        throw new SlotUnavailableError();
+      }
+
+      // Advisory lock — scoped to the tx.
+      const lockId = advisoryLockIdFromResource(input.resourceId);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId}::bigint)`;
 
+      // Re-fetch context using tx (post-lock) to guarantee consistency.
       const location = await tx.location.findFirst({
         where: { id: input.locationId, businessId: input.businessId },
         include: { business: true },
@@ -222,11 +230,11 @@ export class CreateBookingUseCase {
 
     try {
       if (externalTx) {
-        const booking = await runCreate(externalTx);
+        const booking = await runAll(externalTx);
         return { booking };
       }
 
-      const booking = await prisma.$transaction(runCreate);
+      const booking = await prisma.$transaction(runAll);
       return { booking };
     } catch (error) {
       if (isExclusionViolation(error)) {
