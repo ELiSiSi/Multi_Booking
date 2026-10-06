@@ -8,6 +8,7 @@ export interface AppErrorOptions {
 
 
 export class AppError extends Error {
+  public readonly isAppError = true;
   public readonly code: string;
   public readonly httpStatus: number;
   public readonly details?: Record<string, unknown>;
@@ -28,5 +29,5 @@ export class AppError extends Error {
 }
 
 export function isAppError(e: unknown): e is AppError {
-  return e instanceof AppError;
+  return typeof e === 'object' && e !== null && 'isAppError' in e && (e as AppError).isAppError === true;
 }

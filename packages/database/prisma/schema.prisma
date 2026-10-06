@@ -23,6 +23,7 @@ model User {
 
   businesses    Business[]
   refreshTokens RefreshToken[]
+  bookings      Booking[]     @relation("BookingCustomer")
 
   @@map("User")
 }
@@ -75,6 +76,7 @@ model Business {
 
   owner     User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   locations Location[]
+  bookings  Booking[]
 
   @@index([ownerId, createdAt(sort: Desc), id(sort: Desc)])
   @@index([status, createdAt(sort: Desc), id(sort: Desc)])
@@ -103,6 +105,7 @@ model Location {
   business  Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
   services  Service[]
   resources Resource[]
+  bookings  Booking[]
 
   @@unique([businessId, name])
   @@index([businessId, createdAt(sort: Desc), id(sort: Desc)])
@@ -123,6 +126,7 @@ model Service {
 
   location         Location          @relation(fields: [locationId], references: [id], onDelete: Cascade)
   serviceResources ServiceResource[]
+  bookings         Booking[]
 
   @@unique([locationId, name])
   @@index([locationId, createdAt(sort: Desc), id(sort: Desc)])
@@ -144,6 +148,7 @@ model Resource {
 
   availabilityRules      AvailabilityRule[]
   availabilityExceptions AvailabilityException[]
+  bookings               Booking[]
 
   @@unique([locationId, name])
   @@index([locationId, createdAt(sort: Desc), id(sort: Desc)])
@@ -166,23 +171,6 @@ model ServiceResource {
 
 // ─────────────────────────────────────────────────────────────
 // Availability
-//
-// Semantics (enforced at DB level via CHECK constraints in the
-// migration SQL, and at app level in the use cases):
-//
-//   AvailabilityRule.weekday        → 1..7  (1 = Monday, 7 = Sunday)
-//   AvailabilityRule.startTime      → "HH:mm" (00:00..23:59)
-//   AvailabilityRule.endTime        → "HH:mm" (00:00..23:59)
-//   startTime < endTime             → same-day windows only
-//   effectiveFrom <= effectiveTo    → when both present
-//
-//   AvailabilityException.type:
-//     CLOSED        → startTime = null, endTime = null
-//     CUSTOM_HOURS  → startTime != null, endTime != null, startTime < endTime
-//     BREAK         → startTime != null, endTime != null, startTime < endTime
-//
-//   Exception precedence (resolved in slot engine):
-//     CLOSED > CUSTOM_HOURS > BREAK
 // ─────────────────────────────────────────────────────────────
 
 model AvailabilityRule {
@@ -230,4 +218,85 @@ enum AvailabilityExceptionType {
   CLOSED
   CUSTOM_HOURS
   BREAK
+}
+
+// ─────────────────────────────────────────────────────────────
+// Bookings
+// ─────────────────────────────────────────────────────────────
+
+model Booking {
+  id             String        @id @default(uuid()) @db.Uuid
+  businessId     String        @db.Uuid
+  locationId     String        @db.Uuid
+  resourceId     String        @db.Uuid
+  serviceId      String        @db.Uuid
+  customerId     String        @db.Uuid
+
+  status         BookingStatus @default(pending)
+
+  startAt        DateTime
+  endAt          DateTime
+
+  durationMinutes Int
+  bufferMinutes   Int
+  priceCents      Int
+  currency        String
+
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  location  Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  resource  Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  customer  User     @relation("BookingCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+
+  auditEvents AuditEvent[]
+
+  @@index([resourceId, startAt])
+  @@index([customerId, startAt(sort: Desc)])
+  @@index([businessId, startAt(sort: Desc)])
+  @@index([status])
+  @@map("Booking")
+}
+
+enum BookingStatus {
+  pending
+  confirmed
+  cancelled
+  completed
+  no_show
+}
+
+model IdempotencyKey {
+  id            String   @id @default(uuid()) @db.Uuid
+  key           String
+  actorId       String   @db.Uuid
+  endpoint      String
+  requestHash   String
+  responseBody  Json
+  statusCode    Int
+  createdAt     DateTime @default(now())
+
+  @@unique([actorId, key])
+  @@index([createdAt])
+  @@map("IdempotencyKey")
+}
+
+model AuditEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  bookingId  String?  @db.Uuid
+  actorId    String   @db.Uuid
+  action     String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
+  @@map("AuditEvent")
 }

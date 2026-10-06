@@ -9,6 +9,7 @@ import registerSwagger from './plugins/swagger.js';
 import { registerIdentityModule } from './modules/identity/index.js';
 import { registerCatalogModule } from './modules/catalog/index.js';
 import { registerAvailabilityModule } from './modules/availability/index.js';
+import { registerBookingModule } from './modules/bookings/index.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -40,7 +41,6 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   });
 
-
   await registerCors(app);
   await registerCookie(app);
   await registerAuth(app);
@@ -48,10 +48,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerErrorHandler(app);
   await registerHealth(app);
 
-
   await registerIdentityModule(app);
   await registerCatalogModule(app);
   await registerAvailabilityModule(app);
+  await registerBookingModule(app);
 
   return app;
 }

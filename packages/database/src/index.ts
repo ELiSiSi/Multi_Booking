@@ -12,9 +12,13 @@ export type {
   ServiceResource,
   AvailabilityRule,
   AvailabilityException,
+  Booking,
+  IdempotencyKey,
+  AuditEvent,
   Role,
   UserStatus,
   BusinessStatus,
   AvailabilityRuleType,
   AvailabilityExceptionType,
+  BookingStatus,
 } from '@prisma/client';

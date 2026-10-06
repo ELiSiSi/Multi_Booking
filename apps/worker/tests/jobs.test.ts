@@ -1,511 +1,203 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+﻿import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { Job } from 'bullmq';
+import { prisma } from '@reservio/database';
 
-import {
-  JOB_NAMES,
-  type BookingReminderPayload,
-  type PendingExpirationPayload,
-} from '@reservio/queue';
+import { runPendingBookingExpiration } from '../src/jobs/pending-booking-expiration.job.js';
 
-import { bookingReminderJob } from '../src/jobs/booking-reminder.job.js';
-import { pendingBookingExpirationJob } from '../src/jobs/pending-booking-expiration.job.js';
+let adminId: string;
+let businessId: string;
+let locationId: string;
+let serviceId: string;
+let resourceId: string;
+let customerId: string;
 
-// ─────────────────────────────────────────────────────────────
-// Test helpers
-// ─────────────────────────────────────────────────────────────
+let bookingIndex = 0;
 
-function makeJob<T>(
-  name: string,
-  data: T,
-  id: string | undefined = 'test-job-id',
-): Job<T> {
-  return {
-    id,
-    name,
-    data,
-  } as unknown as Job<T>;
+async function createPendingBooking(opts: {
+  createdAtOffsetMs: number;
+}): Promise<string> {
+  // Each booking uses a unique time slot to avoid EXCLUDE conflicts.
+  const slotOffsetMs = bookingIndex * 60 * 60_000; // 1 hour apart
+  bookingIndex += 1;
+
+  const startAt = new Date(
+    Date.now() + 30 * 24 * 60 * 60 * 1000 + slotOffsetMs,
+  );
+  const endAt = new Date(startAt.getTime() + 30 * 60_000);
+  const createdAt = new Date(Date.now() + opts.createdAtOffsetMs);
+
+  const booking = await prisma.booking.create({
+    data: {
+      businessId,
+      locationId,
+      resourceId,
+      serviceId,
+      customerId,
+      startAt,
+      endAt,
+      durationMinutes: 30,
+      bufferMinutes: 0,
+      priceCents: 5000,
+      currency: 'USD',
+      status: 'pending',
+      createdAt,
+    },
+  });
+
+  return booking.id;
 }
 
-// ─────────────────────────────────────────────────────────────
-// pendingBookingExpirationJob
-// ─────────────────────────────────────────────────────────────
+beforeAll(async () => {
+  const stamp = Date.now();
 
-describe('pendingBookingExpirationJob', () => {
-  let logSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  const customer = await prisma.user.create({
+    data: {
+      email: `worker-cust-${stamp}@test.local`,
+      passwordHash: 'x',
+      fullName: 'Worker Customer',
+      role: 'customer',
+    },
   });
+  customerId = customer.id;
 
-  afterEach(() => {
-    logSpy.mockRestore();
+  const admin = await prisma.user.create({
+    data: {
+      email: `worker-admin-${stamp}@test.local`,
+      passwordHash: 'x',
+      fullName: 'Worker Admin',
+      role: 'admin',
+    },
   });
+  adminId = admin.id;
 
-  it('is a function', () => {
-    expect(typeof pendingBookingExpirationJob).toBe('function');
+  const business = await prisma.business.create({
+    data: {
+      ownerId: adminId,
+      name: `Worker Biz ${stamp}`,
+      timezone: 'UTC',
+      pendingTimeoutMinutes: 1,
+    },
   });
+  businessId = business.id;
 
-  it('accepts a valid PendingExpirationPayload and resolves', async () => {
-    const job = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId: 'booking-001' },
-      'pending-job-1',
-    );
-
-    await expect(pendingBookingExpirationJob(job)).resolves.toBeUndefined();
+  const location = await prisma.location.create({
+    data: {
+      businessId,
+      name: 'Main',
+    },
   });
+  locationId = location.id;
 
-  it('returns a Promise', () => {
-    const job = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId: 'booking-promise' },
-    );
-
-    const result = pendingBookingExpirationJob(job);
-
-    expect(result).toBeInstanceOf(Promise);
-
-    return result;
+  const service = await prisma.service.create({
+    data: {
+      locationId,
+      name: 'Svc',
+      durationMinutes: 30,
+      priceCents: 5000,
+      currency: 'USD',
+    },
   });
+  serviceId = service.id;
 
-  it('logs exactly once', async () => {
-    const job = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId: 'booking-log-once' },
-      'pending-log-once',
-    );
-
-    await pendingBookingExpirationJob(job);
-
-    expect(logSpy).toHaveBeenCalledTimes(1);
+  const resource = await prisma.resource.create({
+    data: {
+      locationId,
+      name: 'Res',
+      bufferMinutes: 0,
+    },
   });
-
-  it('logs the correct job name', async () => {
-    const job = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId: 'booking-name' },
-      'pending-name',
-    );
-
-    await pendingBookingExpirationJob(job);
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-
-    expect(message).toContain(JOB_NAMES.PENDING_EXPIRATION);
-  });
-
-  it('logs the bookingId', async () => {
-    const job = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId: 'booking-xyz' },
-      'pending-job-2',
-    );
-
-    await pendingBookingExpirationJob(job);
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-
-    expect(message).toContain('booking-xyz');
-  });
-
-  it('logs the job id', async () => {
-    const job = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId: 'booking-job-id' },
-      'pending-job-123',
-    );
-
-    await pendingBookingExpirationJob(job);
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-
-    expect(message).toContain('pending-job-123');
-  });
-
-  it('handles an empty bookingId without throwing', async () => {
-    const job = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId: '' },
-      'pending-empty',
-    );
-
-    await expect(pendingBookingExpirationJob(job)).resolves.toBeUndefined();
-  });
-
-  it('handles a very long bookingId', async () => {
-    const bookingId = 'b'.repeat(10_000);
-
-    const job = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId },
-      'pending-long',
-    );
-
-    await expect(pendingBookingExpirationJob(job)).resolves.toBeUndefined();
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-    expect(message).toContain(bookingId);
-  });
-
-  it('handles special characters in bookingId', async () => {
-    const bookingId = 'booking-123_ABC:/?@#$%';
-
-    const job = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId },
-      'pending-special',
-    );
-
-    await expect(pendingBookingExpirationJob(job)).resolves.toBeUndefined();
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-    expect(message).toContain(bookingId);
-  });
-
-  it('handles unicode characters in bookingId', async () => {
-    const bookingId = 'booking-🎉-مصر-予約';
-
-    const job = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId },
-      'pending-unicode',
-    );
-
-    await expect(pendingBookingExpirationJob(job)).resolves.toBeUndefined();
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-    expect(message).toContain(bookingId);
-  });
-
-  it('handles an undefined job id', async () => {
-    const job = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId: 'booking-no-id' },
-      undefined,
-    );
-
-    await expect(pendingBookingExpirationJob(job)).resolves.toBeUndefined();
-  });
-
-  it('does not mutate job.data', async () => {
-    const data: PendingExpirationPayload = {
-      bookingId: 'booking-immutable',
-    };
-
-    const original = { ...data };
-    const job = makeJob(JOB_NAMES.PENDING_EXPIRATION, data);
-
-    await pendingBookingExpirationJob(job);
-
-    expect(job.data).toEqual(original);
-    expect(job.data).toBe(data);
-  });
-
-  it('supports multiple jobs independently', async () => {
-    const job1 = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId: 'booking-1' },
-      'job-1',
-    );
-
-    const job2 = makeJob<PendingExpirationPayload>(
-      JOB_NAMES.PENDING_EXPIRATION,
-      { bookingId: 'booking-2' },
-      'job-2',
-    );
-
-    await Promise.all([
-      pendingBookingExpirationJob(job1),
-      pendingBookingExpirationJob(job2),
-    ]);
-
-    expect(logSpy).toHaveBeenCalledTimes(2);
-
-    const messages = logSpy.mock.calls.map((call) => String(call[0]));
-
-    expect(messages.some((message) => message.includes('booking-1'))).toBe(
-      true,
-    );
-    expect(messages.some((message) => message.includes('booking-2'))).toBe(
-      true,
-    );
-  });
+  resourceId = resource.id;
 });
 
-// ─────────────────────────────────────────────────────────────
-// bookingReminderJob
-// ─────────────────────────────────────────────────────────────
-
-describe('bookingReminderJob', () => {
-  let logSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+afterAll(async () => {
+  await prisma.auditEvent.deleteMany({
+    where: { booking: { businessId } },
+  });
+  await prisma.booking.deleteMany({ where: { businessId } });
+  await prisma.service.deleteMany({ where: { locationId } });
+  await prisma.resource.deleteMany({ where: { locationId } });
+  await prisma.location.deleteMany({ where: { businessId } });
+  await prisma.business.delete({ where: { id: businessId } });
+  await prisma.user.deleteMany({
+    where: { id: { in: [adminId, customerId] } },
   });
 
-  afterEach(() => {
-    logSpy.mockRestore();
-  });
-
-  it('is a function', () => {
-    expect(typeof bookingReminderJob).toBe('function');
-  });
-
-  it('accepts a valid BookingReminderPayload and resolves', async () => {
-    const job = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId: 'booking-002' },
-      'reminder-job-1',
-    );
-
-    await expect(bookingReminderJob(job)).resolves.toBeUndefined();
-  });
-
-  it('returns a Promise', () => {
-    const job = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId: 'booking-promise' },
-    );
-
-    const result = bookingReminderJob(job);
-
-    expect(result).toBeInstanceOf(Promise);
-
-    return result;
-  });
-
-  it('logs exactly once', async () => {
-    const job = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId: 'booking-log-once' },
-      'reminder-log-once',
-    );
-
-    await bookingReminderJob(job);
-
-    expect(logSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('logs the correct job name', async () => {
-    const job = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId: 'booking-name' },
-      'reminder-name',
-    );
-
-    await bookingReminderJob(job);
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-
-    expect(message).toContain(JOB_NAMES.BOOKING_REMINDER);
-  });
-
-  it('logs the bookingId', async () => {
-    const job = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId: 'booking-abc' },
-      'reminder-job-2',
-    );
-
-    await bookingReminderJob(job);
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-
-    expect(message).toContain('booking-abc');
-  });
-
-  it('logs the job id', async () => {
-    const job = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId: 'booking-job-id' },
-      'reminder-job-123',
-    );
-
-    await bookingReminderJob(job);
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-
-    expect(message).toContain('reminder-job-123');
-  });
-
-  it('handles an empty bookingId without throwing', async () => {
-    const job = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId: '' },
-      'reminder-empty',
-    );
-
-    await expect(bookingReminderJob(job)).resolves.toBeUndefined();
-  });
-
-  it('handles a very long bookingId', async () => {
-    const bookingId = 'r'.repeat(10_000);
-
-    const job = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId },
-      'reminder-long',
-    );
-
-    await expect(bookingReminderJob(job)).resolves.toBeUndefined();
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-    expect(message).toContain(bookingId);
-  });
-
-  it('handles special characters in bookingId', async () => {
-    const bookingId = 'booking-123_ABC:/?@#$%';
-
-    const job = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId },
-      'reminder-special',
-    );
-
-    await expect(bookingReminderJob(job)).resolves.toBeUndefined();
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-    expect(message).toContain(bookingId);
-  });
-
-  it('handles unicode characters in bookingId', async () => {
-    const bookingId = 'booking-with-🎉-مصر-予約';
-
-    const job = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId },
-      'reminder-unicode',
-    );
-
-    await expect(bookingReminderJob(job)).resolves.toBeUndefined();
-
-    const message = String(logSpy.mock.calls[0]?.[0]);
-    expect(message).toContain(bookingId);
-  });
-
-  it('handles an undefined job id', async () => {
-    const job = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId: 'booking-no-id' },
-      undefined,
-    );
-
-    await expect(bookingReminderJob(job)).resolves.toBeUndefined();
-  });
-
-  it('does not mutate job.data', async () => {
-    const data: BookingReminderPayload = {
-      bookingId: 'booking-immutable',
-    };
-
-    const original = { ...data };
-    const job = makeJob(JOB_NAMES.BOOKING_REMINDER, data);
-
-    await bookingReminderJob(job);
-
-    expect(job.data).toEqual(original);
-    expect(job.data).toBe(data);
-  });
-
-  it('supports multiple jobs independently', async () => {
-    const job1 = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId: 'booking-1' },
-      'job-1',
-    );
-
-    const job2 = makeJob<BookingReminderPayload>(
-      JOB_NAMES.BOOKING_REMINDER,
-      { bookingId: 'booking-2' },
-      'job-2',
-    );
-
-    await Promise.all([
-      bookingReminderJob(job1),
-      bookingReminderJob(job2),
-    ]);
-
-    expect(logSpy).toHaveBeenCalledTimes(2);
-
-    const messages = logSpy.mock.calls.map((call) => String(call[0]));
-
-    expect(messages.some((message) => message.includes('booking-1'))).toBe(
-      true,
-    );
-    expect(messages.some((message) => message.includes('booking-2'))).toBe(
-      true,
-    );
-  });
+  await prisma.$disconnect();
 });
 
-// ─────────────────────────────────────────────────────────────
-// Consistency checks
-// ─────────────────────────────────────────────────────────────
-
-describe('job handlers — consistency', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
+describe('runPendingBookingExpiration', () => {
+  it('returns { scanned: 0, cancelled: 0 } when there are no pending bookings', async () => {
+    const result = await runPendingBookingExpiration();
+    expect(result.scanned).toBe(0);
+    expect(result.cancelled).toBe(0);
   });
 
-  it('both job handlers are distinct functions', () => {
-    expect(pendingBookingExpirationJob).not.toBe(bookingReminderJob);
+  it('cancels a pending booking that has exceeded its timeout', async () => {
+    const bookingId = await createPendingBooking({
+      createdAtOffsetMs: -5 * 60_000,
+    });
+
+    const result = await runPendingBookingExpiration();
+
+    expect(result.scanned).toBeGreaterThanOrEqual(1);
+    expect(result.cancelled).toBeGreaterThanOrEqual(1);
+
+    const after = await prisma.booking.findUnique({
+      where: { id: bookingId },
+    });
+    expect(after?.status).toBe('cancelled');
+    expect(after?.cancellationReason).toBe('pending_timeout');
   });
 
-  it('both job handlers are async functions', () => {
-    expect(pendingBookingExpirationJob.constructor.name).toBe('AsyncFunction');
-    expect(bookingReminderJob.constructor.name).toBe('AsyncFunction');
+  it('does not cancel a pending booking within its timeout window', async () => {
+    const bookingId = await createPendingBooking({
+      createdAtOffsetMs: 0,
+    });
+
+    await runPendingBookingExpiration();
+
+    const after = await prisma.booking.findUnique({
+      where: { id: bookingId },
+    });
+    expect(after?.status).toBe('pending');
   });
 
-  it('both handlers return promises', () => {
-    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  it('writes an audit event when a booking is cancelled', async () => {
+    const bookingId = await createPendingBooking({
+      createdAtOffsetMs: -10 * 60_000,
+    });
 
-    const pending = pendingBookingExpirationJob(
-      makeJob<PendingExpirationPayload>(JOB_NAMES.PENDING_EXPIRATION, {
-        bookingId: 'pending-x',
-      }),
-    );
+    await runPendingBookingExpiration();
 
-    const reminder = bookingReminderJob(
-      makeJob<BookingReminderPayload>(JOB_NAMES.BOOKING_REMINDER, {
-        bookingId: 'reminder-y',
-      }),
-    );
+    const events = await prisma.auditEvent.findMany({
+      where: { bookingId },
+    });
 
-    expect(pending).toBeInstanceOf(Promise);
-    expect(reminder).toBeInstanceOf(Promise);
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    const event = events[0]!;
+    expect(event.action).toBe('booking.cancelled');
 
-    return Promise.all([pending, reminder]);
-  });
-
-  it('handlers do not share the same payload object', async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => undefined);
-
-    const pendingData: PendingExpirationPayload = {
-      bookingId: 'pending-booking',
+    const metadata = event.metadata as {
+      from?: string;
+      to?: string;
+      reason?: string;
     };
+    expect(metadata.from).toBe('pending');
+    expect(metadata.to).toBe('cancelled');
+    expect(metadata.reason).toBe('pending_timeout');
+  });
 
-    const reminderData: BookingReminderPayload = {
-      bookingId: 'reminder-booking',
-    };
+  it('is idempotent — running twice does not change already-cancelled bookings', async () => {
+    const bookingId = await createPendingBooking({
+      createdAtOffsetMs: -5 * 60_000,
+    });
 
-    const pendingJob = makeJob(
-      JOB_NAMES.PENDING_EXPIRATION,
-      pendingData,
-    );
+    await runPendingBookingExpiration();
+    await runPendingBookingExpiration();
 
-    const reminderJob = makeJob(
-      JOB_NAMES.BOOKING_REMINDER,
-      reminderData,
-    );
-
-    await Promise.all([
-      pendingBookingExpirationJob(pendingJob),
-      bookingReminderJob(reminderJob),
-    ]);
-
-    expect(pendingJob.data).toBe(pendingData);
-    expect(reminderJob.data).toBe(reminderData);
-    expect(pendingJob.data).not.toBe(reminderJob.data);
+    const auditEvents = await prisma.auditEvent.findMany({
+      where: { bookingId },
+    });
+    expect(auditEvents.length).toBe(1);
   });
 });

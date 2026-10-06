@@ -4,9 +4,12 @@ import type {
   BusinessRepository,
   UpdateBusinessInput,
 } from '../repositories/business.repository.js';
+import { isValidIanaTimezone } from './_timezone.js';
 import {
   BusinessNameAlreadyTakenError,
   BusinessNotFoundError,
+  EmptyNameError,
+  InvalidTimezoneError,
 } from './catalog.errors.js';
 
 export interface UpdateBusinessUseCaseInput {
@@ -43,6 +46,11 @@ export class UpdateBusinessUseCase {
 
     if (input.name !== undefined) {
       const name = input.name.trim();
+
+      if (name.length === 0) {
+        throw new EmptyNameError();
+      }
+
       const taken = await this.businessRepository.existsByNameAndOwner(
         name,
         input.actorId,
@@ -53,7 +61,16 @@ export class UpdateBusinessUseCase {
       patch.name = name;
     }
 
-    if (input.timezone !== undefined) patch.timezone = input.timezone;
+    if (input.timezone !== undefined) {
+      const trimmed = input.timezone.trim();
+      if (trimmed.length > 0) {
+        if (!isValidIanaTimezone(trimmed)) {
+          throw new InvalidTimezoneError(trimmed);
+        }
+        patch.timezone = trimmed;
+      }
+    }
+
     if (input.slotGranularityMinutes !== undefined) {
       patch.slotGranularityMinutes = input.slotGranularityMinutes;
     }

@@ -1,4 +1,4 @@
-import { prisma } from '@reservio/database';
+import { prisma, type Prisma } from '@reservio/database';
 
 import type { Weekday } from '../domain/_weekday.js';
 import type {
@@ -29,27 +29,32 @@ export interface CatalogContext {
   };
 }
 
+type DbClient = typeof prisma | Prisma.TransactionClient;
+
 export class AvailabilityRepository {
   async loadCatalogContext(
     businessId: string,
     locationId: string,
     resourceId: string,
     serviceId: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<CatalogContext | null> {
-    const location = await prisma.location.findFirst({
+    const client: DbClient = tx ?? prisma;
+
+    const location = await client.location.findFirst({
       where: { id: locationId, businessId },
       include: { business: true },
     });
 
     if (!location) return null;
 
-    const resource = await prisma.resource.findFirst({
+    const resource = await client.resource.findFirst({
       where: { id: resourceId, locationId },
     });
 
     if (!resource) return null;
 
-    const service = await prisma.service.findFirst({
+    const service = await client.service.findFirst({
       where: { id: serviceId, locationId },
     });
 
@@ -77,8 +82,13 @@ export class AvailabilityRepository {
     };
   }
 
-  async loadRules(resourceId: string): Promise<RecurringRule[]> {
-    const rows = await prisma.availabilityRule.findMany({
+  async loadRules(
+    resourceId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<RecurringRule[]> {
+    const client: DbClient = tx ?? prisma;
+
+    const rows = await client.availabilityRule.findMany({
       where: { resourceId },
       orderBy: [{ weekday: 'asc' }, { startTime: 'asc' }],
     });
@@ -98,10 +108,12 @@ export class AvailabilityRepository {
   async loadExceptions(
     resourceId: string,
     date: LocalDate,
+    tx?: Prisma.TransactionClient,
   ): Promise<DateException[]> {
+    const client: DbClient = tx ?? prisma;
     const dateObj = new Date(`${date}T00:00:00.000Z`);
 
-    const rows = await prisma.availabilityException.findMany({
+    const rows = await client.availabilityException.findMany({
       where: { resourceId, date: dateObj },
       orderBy: [{ startTime: 'asc' }],
     });
@@ -121,8 +133,8 @@ export class AvailabilityRepository {
     _resourceId: string,
     _from: Date,
     _to: Date,
+    _tx?: Prisma.TransactionClient,
   ): Promise<ActiveBooking[]> {
-    // Booking model arrives in Phase 5.
     return [];
   }
 }
