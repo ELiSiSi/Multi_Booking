@@ -494,6 +494,19 @@ curl -X POST http://localhost:3000/api/v1/auth/login \
 
 ## Available Scripts
 
+> **⚠️ The test suite requires Postgres and Redis to be running.**
+> Start the infra first (`docker compose up -d postgres redis`) and wait
+> until `docker ps` reports both as `(healthy)`. Without infra, integration
+> tests will time out after 60 seconds each.
+>
+> Expected times with infra running:
+>
+> | Command | Time |
+> |---|---|
+> | `pnpm typecheck` | ~5s |
+> | `pnpm test:quiet` | ~12s |
+> | `pnpm build` | ~10s |
+
 | Script | What it does |
 | ------ | ------------ |
 | `pnpm dev:api` | Run API in watch mode |

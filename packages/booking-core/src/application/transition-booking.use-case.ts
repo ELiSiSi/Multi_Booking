@@ -48,66 +48,61 @@ export class TransitionBookingUseCase {
   async execute(
     input: TransitionBookingInput,
   ): Promise<TransitionBookingOutput> {
-    return this.uow.run((tx) => this.executeInTransaction(tx, input));
-  }
+    return this.uow.run(async (tx) => {
+      const initial = await tx.bookings.findById(input.bookingId);
+      if (!initial) {
+        throw new BookingNotFoundError(input.bookingId);
+      }
 
-  async executeInTransaction(
-    tx: TransactionContext,
-    input: TransitionBookingInput,
-  ): Promise<TransitionBookingOutput> {
-    const initial = await tx.bookings.findById(input.bookingId);
-    if (!initial) {
-      throw new BookingNotFoundError(input.bookingId);
-    }
+      await tx.lockResource(initial.resourceId);
 
-    await tx.lockResource(initial.resourceId);
+      const booking = await tx.bookings.findById(input.bookingId);
+      if (!booking) {
+        throw new BookingNotFoundError(input.bookingId);
+      }
 
-    const booking = await tx.bookings.findById(input.bookingId);
-    if (!booking) {
-      throw new BookingNotFoundError(input.bookingId);
-    }
+      this.assertAuthorized(input.actor, booking, input.to);
 
-    this.assertAuthorized(input.actor, booking, input.to);
+      if (!canTransition(booking.status, input.to)) {
+        throw new InvalidStateTransitionError(booking.status, input.to);
+      }
 
-    if (!canTransition(booking.status, input.to)) {
-      throw new InvalidStateTransitionError(booking.status, input.to);
-    }
+      const now = new Date();
+      await this.assertTimingGuards(tx, booking, input, now);
 
-    const now = new Date();
-    await this.assertTimingGuards(tx, booking, input, now);
+      const patch =
+        input.to === 'cancelled'
+          ? {
+              status: input.to,
+              cancelledAt: now,
+              cancellationReason: input.cancellationReason ?? null,
+              expectedStatus: booking.status,
+            }
+          : {
+              status: input.to,
+              expectedStatus: booking.status,
+            };
 
-    const patch =
-      input.to === 'cancelled'
-        ? {
-            status: input.to,
-            cancelledAt: now,
-            cancellationReason: input.cancellationReason ?? null,
-            expectedStatus: booking.status,
-          }
-        : {
-            status: input.to,
-            expectedStatus: booking.status,
-          };
+      const updated = await tx.bookings.updateStatus(booking.id, patch);
+      if (!updated) {
+        throw new InvalidStateTransitionError(booking.status, input.to);
+      }
 
-    const updated = await tx.bookings.updateStatus(booking.id, patch);
-    if (!updated) {
-      throw new InvalidStateTransitionError(booking.status, input.to);
-    }
+      await tx.audit.record({
+        bookingId: updated.id,
+        actorId: input.actor.userId,
+        action: `booking.${input.to}`,
+        metadata: {
+          from: booking.status,
+          to: input.to,
+          ...(input.cancellationReason
+            ? { reason: input.cancellationReason }
+            : {}),
+        },
+      });
 
-    await tx.audit.record({
-      bookingId: updated.id,
-      actorId: input.actor.userId,
-      action: `booking.${input.to}`,
-      metadata: {
-        from: booking.status,
-        to: input.to,
-        ...(input.cancellationReason
-          ? { reason: input.cancellationReason }
-          : {}),
-      },
+      return { booking: updated };
     });
-
-    return { booking: updated };
   }
 
   private assertAuthorized(

@@ -2,7 +2,7 @@ import { redis } from '@reservio/redis';
 
 import type { LocalDate, Slot } from '../domain/types.js';
 
-const TTL_SECONDS = 60;
+const TTL_SECONDS = 90;
 
 export interface CachedAvailability {
   timezone: string;
