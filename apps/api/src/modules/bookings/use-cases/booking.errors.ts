@@ -60,37 +60,6 @@ export class StartInPastError extends AppError {
   }
 }
 
-export class InvalidTransitionError extends AppError {
-  constructor(from: string, to: string) {
-    super({
-      code: 'INVALID_BOOKING_TRANSITION',
-      message: `Cannot transition booking from ${from} to ${to}`,
-      httpStatus: 409,
-    });
-  }
-}
-
-export class CancellationWindowClosedError extends AppError {
-  constructor() {
-    super({
-      code: 'CANCELLATION_WINDOW_CLOSED',
-      message: 'Cancellation is no longer allowed for this booking',
-      httpStatus: 409,
-    });
-  }
-}
-
-export class NoShowTooEarlyError extends AppError {
-  constructor() {
-    super({
-      code: 'NO_SHOW_TOO_EARLY',
-      message: 'A booking can only be marked no-show at or after its start time',
-      httpStatus: 409,
-    });
-  }
-}
-
-  
 export class IdempotencyConflictError extends AppError {
   constructor() {
     super({
