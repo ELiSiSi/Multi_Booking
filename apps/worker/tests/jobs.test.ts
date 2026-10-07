@@ -26,6 +26,16 @@ async function createPendingBooking(opts: {
   const endAt = new Date(startAt.getTime() + 30 * 60_000);
   const createdAt = new Date(Date.now() + opts.createdAtOffsetMs);
 
+  // Mirror the production behavior: pendingExpiresAt is snapshotted
+  // from createdAt + business.pendingTimeoutMinutes at booking time.
+  const business = await prisma.business.findUniqueOrThrow({
+    where: { id: businessId },
+    select: { pendingTimeoutMinutes: true },
+  });
+  const pendingExpiresAt = new Date(
+    createdAt.getTime() + business.pendingTimeoutMinutes * 60_000,
+  );
+
   const booking = await prisma.booking.create({
     data: {
       businessId,
@@ -41,6 +51,7 @@ async function createPendingBooking(opts: {
       currency: 'USD',
       status: 'pending',
       createdAt,
+      pendingExpiresAt,
     },
   });
 
@@ -199,5 +210,38 @@ describe('runPendingBookingExpiration', () => {
       where: { bookingId },
     });
     expect(auditEvents.length).toBe(1);
+  });
+
+  it('uses the snapshotted pendingExpiresAt, not the current business timeout', async () => {
+    // Snapshot semantics: a booking created under a 1-minute timeout
+    // must NOT be affected when the business later changes its
+    // pendingTimeoutMinutes to something much larger.
+    const bookingId = await createPendingBooking({
+      createdAtOffsetMs: -5 * 60_000, // expiresAt = createdAt + 1 min = 4 min ago
+    });
+
+    // Change the business timeout to 60 minutes (would extend to 55 min
+    // in the future if the worker recomputed live). It must NOT.
+    await prisma.business.update({
+      where: { id: businessId },
+      data: { pendingTimeoutMinutes: 60 },
+    });
+
+    try {
+      const result = await runPendingBookingExpiration();
+      expect(result.cancelled).toBeGreaterThanOrEqual(1);
+
+      const after = await prisma.booking.findUnique({
+        where: { id: bookingId },
+      });
+      expect(after?.status).toBe('cancelled');
+      expect(after?.cancellationReason).toBe('EXPIRATION_TIMEOUT');
+    } finally {
+      // Restore the original timeout for subsequent tests.
+      await prisma.business.update({
+        where: { id: businessId },
+        data: { pendingTimeoutMinutes: 1 },
+      });
+    }
   });
 });

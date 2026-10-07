@@ -126,7 +126,7 @@ Multi_Booking/
 │   │   │   │   │   ├── use-cases/    # CRUD rules/exceptions, get-availability, cache invalidation
 │   │   │   │   │   └── routes/       # /availability-rules/*, /availability-exceptions/*, /availability
 │   │   │   │   ├── bookings/         # Phase 5: Booking API presentation only
-│   │   │   │   │   ├── repositories/ # BookingRepository, AuditRepository, IdempotencyRepository
+│   │   │   │   │   ├── repositories/ # BookingRepository, IdempotencyRepository
 │   │   │   │   │   ├── use-cases/    # Create (idempotent), Get, List (thin wrappers over booking-core)
 │   │   │   │   │   └── routes/       # /bookings/*, /businesses/:bid/bookings
 │   │   │   │   └── integration/      # Cross-module wiring (cache invalidation on catalog changes)

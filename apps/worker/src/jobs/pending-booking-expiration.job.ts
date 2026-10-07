@@ -19,23 +19,19 @@ async function invalidateAvailabilityForResource(
   let cursor = '0';
   const pattern = `slots:*:${resourceId}:*`;
 
-  try {
-    do {
-      const [next, batch] = await redis.scan(
-        cursor,
-        'MATCH',
-        pattern,
-        'COUNT',
-        100,
-      );
-      if (batch.length > 0) {
-        await redis.del(...batch);
-      }
-      cursor = next;
-    } while (cursor !== '0');
-  } catch (error) {
-    console.error('[worker] cache invalidation failed:', error);
-  }
+  do {
+    const [next, batch] = await redis.scan(
+      cursor,
+      'MATCH',
+      pattern,
+      'COUNT',
+      100,
+    );
+    if (batch.length > 0) {
+      await redis.del(...batch);
+    }
+    cursor = next;
+  } while (cursor !== '0');
 }
 
 export async function runPendingBookingExpiration(
@@ -43,25 +39,22 @@ export async function runPendingBookingExpiration(
 ): Promise<PendingExpirationResult> {
   const now = new Date();
 
+  // The pending expiration window is snapshotted on each booking at
+  // creation time (Booking.pendingExpiresAt), as required by the design
+  // (Section 6 §7). Changing Business.pendingTimeoutMinutes later must
+  // NOT retroactively affect bookings that were already created.
   const candidates = await prisma.booking.findMany({
-    where: { status: 'pending' },
-    orderBy: [{ createdAt: 'asc' }],
-    take: 500,
-    include: {
-      business: { select: { pendingTimeoutMinutes: true } },
+    where: {
+      status: 'pending',
+      pendingExpiresAt: { lte: now, not: null },
     },
+    orderBy: [{ pendingExpiresAt: 'asc' }],
+    take: 500,
   });
 
   let cancelled = 0;
 
   for (const booking of candidates) {
-    const timeoutMs = booking.business.pendingTimeoutMinutes * 60_000;
-    const expiresAt = new Date(booking.createdAt.getTime() + timeoutMs);
-
-    if (expiresAt.getTime() > now.getTime()) {
-      continue;
-    }
-
     // Pre-check: did a prior attempt of this same job already perform
     // the transition? If so, only the cache invalidation remains.
     const current = await prisma.booking.findUnique({
@@ -99,7 +92,9 @@ export async function runPendingBookingExpiration(
       }
     }
 
-
+    // Reached on: (a) transition just succeeded, or (b) a prior
+    // attempt of this same job already transitioned the booking.
+    // In both cases the cache invalidation is still outstanding.
     await invalidateAvailabilityForResource(booking.resourceId);
   }
 

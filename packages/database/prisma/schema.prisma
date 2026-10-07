@@ -23,7 +23,7 @@ model User {
 
   businesses    Business[]
   refreshTokens RefreshToken[]
-  bookings      Booking[]     @relation("BookingCustomer")
+  bookings      Booking[]      @relation("BookingCustomer")
 
   @@map("User")
 }
@@ -226,17 +226,17 @@ enum AvailabilityExceptionType {
 // ─────────────────────────────────────────────────────────────
 
 model Booking {
-  id             String        @id @default(uuid()) @db.Uuid
-  businessId     String        @db.Uuid
-  locationId     String        @db.Uuid
-  resourceId     String        @db.Uuid
-  serviceId      String        @db.Uuid
-  customerId     String        @db.Uuid
+  id         String @id @default(uuid()) @db.Uuid
+  businessId String @db.Uuid
+  locationId String @db.Uuid
+  resourceId String @db.Uuid
+  serviceId  String @db.Uuid
+  customerId String @db.Uuid
 
-  status         BookingStatus @default(pending)
+  status BookingStatus @default(pending)
 
-  startAt        DateTime @db.Timestamptz(3)
-  endAt          DateTime @db.Timestamptz(3)
+  startAt DateTime @db.Timestamptz(3)
+  endAt   DateTime @db.Timestamptz(3)
 
   durationMinutes Int
   bufferMinutes   Int
@@ -245,15 +245,16 @@ model Booking {
 
   cancelledAt        DateTime?
   cancellationReason String?
+  pendingExpiresAt   DateTime? @db.Timestamptz(3)
 
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  location  Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
-  resource  Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
-  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  customer  User     @relation("BookingCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  service  Service  @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  customer User     @relation("BookingCustomer", fields: [customerId], references: [id], onDelete: Restrict)
 
   auditEvents AuditEvent[]
 
@@ -273,14 +274,14 @@ enum BookingStatus {
 }
 
 model IdempotencyKey {
-  id            String   @id @default(uuid()) @db.Uuid
-  key           String
-  actorId       String   @db.Uuid
-  endpoint      String
-  requestHash   String
-  responseBody  Json
-  statusCode    Int
-  createdAt     DateTime @default(now())
+  id           String   @id @default(uuid()) @db.Uuid
+  key          String
+  actorId      String   @db.Uuid
+  endpoint     String
+  requestHash  String
+  responseBody Json
+  statusCode   Int
+  createdAt    DateTime @default(now())
 
   @@unique([actorId, key])
   @@index([createdAt])
@@ -288,12 +289,12 @@ model IdempotencyKey {
 }
 
 model AuditEvent {
-  id         String   @id @default(uuid()) @db.Uuid
-  bookingId  String?  @db.Uuid
-  actorId    String   @db.Uuid
-  action     String
-  metadata   Json?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid()) @db.Uuid
+  bookingId String?  @db.Uuid
+  actorId   String   @db.Uuid
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
 
   booking Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 

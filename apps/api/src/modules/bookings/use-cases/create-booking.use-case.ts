@@ -211,6 +211,16 @@ export class CreateBookingUseCase {
       const bufferMinutes =
         resource.bufferMinutes ?? location.business.defaultBufferMinutes;
 
+      // Snapshot the pending expiration window on the booking itself,
+      // as required by the design (Section 6 §7). Changing
+      // Business.pendingTimeoutMinutes later must NOT retroactively
+      // affect bookings that were already created.
+      const createdAt = new Date();
+      const pendingExpiresAt = new Date(
+        createdAt.getTime() +
+          location.business.pendingTimeoutMinutes * 60_000,
+      );
+
       return tx.booking.create({
         data: {
           businessId: location.business.id,
@@ -224,6 +234,8 @@ export class CreateBookingUseCase {
           bufferMinutes,
           priceCents: service.priceCents,
           currency: service.currency,
+          createdAt,
+          pendingExpiresAt,
         },
       });
     };
