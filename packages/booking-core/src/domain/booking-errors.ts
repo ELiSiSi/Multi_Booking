@@ -53,6 +53,16 @@ export class BookingNotYetCompletedError extends AppError {
   }
 }
 
+export class BookingNotYetExpiredError extends AppError {
+  constructor() {
+    super({
+      code: 'BOOKING_NOT_YET_EXPIRED',
+      message: 'A pending booking cannot be expired before pendingExpiresAt',
+      httpStatus: 409,
+    });
+  }
+}
+
 export class BookingNotStartedError extends AppError {
   constructor() {
     super({

@@ -1,16 +1,34 @@
-import type { Booking, Prisma, PrismaClient } from '@prisma/client';
+import type { Booking as PrismaBooking, Prisma, PrismaClient } from '@prisma/client';
 import type {
+  Booking,
   BookingRepositoryPort,
   UpdateBookingStatusInput,
 } from '@reservio/booking-core';
 
 type PrismaLike = PrismaClient | Prisma.TransactionClient;
 
+function toCore(row: PrismaBooking): Booking {
+  return {
+    id: row.id,
+    businessId: row.businessId,
+    resourceId: row.resourceId,
+    customerId: row.customerId,
+    status: row.status as Booking['status'],
+    startAt: row.startAt,
+    endAt: row.endAt,
+    bufferMinutes: row.bufferMinutes,
+    cancelledAt: row.cancelledAt,
+    cancellationReason: row.cancellationReason,
+    pendingExpiresAt: row.pendingExpiresAt,
+  };
+}
+
 export class PrismaBookingRepository implements BookingRepositoryPort {
   constructor(private readonly db: PrismaLike) {}
 
   async findById(id: string): Promise<Booking | null> {
-    return this.db.booking.findUnique({ where: { id } });
+    const row = await this.db.booking.findUnique({ where: { id } });
+    return row ? toCore(row) : null;
   }
 
   async updateStatus(
@@ -41,6 +59,7 @@ export class PrismaBookingRepository implements BookingRepositoryPort {
       return null;
     }
 
-    return this.db.booking.findUnique({ where: { id } });
+    const row = await this.db.booking.findUnique({ where: { id } });
+    return row ? toCore(row) : null;
   }
-}
+}

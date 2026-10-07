@@ -11,6 +11,7 @@ import {
 import {
   BookingCancellationClosedError,
   BookingNotFoundError,
+  BookingNotYetExpiredError,
   BookingNotStartedError,
   BookingNotYetCompletedError,
   CancellationWindowPassedError,
@@ -140,6 +141,16 @@ export class TransitionBookingUseCase {
     input: TransitionBookingInput,
     now: Date,
   ): Promise<void> {
+    if (input.actor.role === 'system') {
+      if (
+        booking.pendingExpiresAt === null ||
+        now.getTime() < booking.pendingExpiresAt.getTime()
+      ) {
+        throw new BookingNotYetExpiredError();
+      }
+      return;
+    }
+
     if (input.to === 'completed') {
       if (!canComplete(booking, now)) {
         throw new BookingNotYetCompletedError();
@@ -155,10 +166,6 @@ export class TransitionBookingUseCase {
     }
 
     if (input.to === 'cancelled') {
-      if (input.actor.role === 'system') {
-        return;
-      }
-
       if (input.actor.role === 'admin') {
         if (!canAdminCancel(booking, now)) {
           throw new BookingCancellationClosedError();

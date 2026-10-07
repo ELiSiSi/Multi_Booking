@@ -15,4 +15,10 @@ export interface Booking {
   bufferMinutes: number;
   cancelledAt: Date | null;
   cancellationReason: string | null;
+  /**
+   * Snapshot of the point at which a pending booking may be expired by the
+   * system. It is deliberately part of the core model so expiration is
+   * protected by the domain layer, not only by the worker query.
+   */
+  pendingExpiresAt: Date | null;
 }
