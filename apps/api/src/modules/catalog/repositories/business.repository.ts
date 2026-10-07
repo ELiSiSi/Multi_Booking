@@ -10,6 +10,7 @@ export interface CreateBusinessInput {
   defaultBufferMinutes?: number;
   pendingTimeoutMinutes?: number;
   cancellationWindowMinutes?: number;
+  reminderLeadTimeMinutes?: number;
 }
 
 export interface UpdateBusinessInput {
@@ -19,6 +20,7 @@ export interface UpdateBusinessInput {
   defaultBufferMinutes?: number;
   pendingTimeoutMinutes?: number;
   cancellationWindowMinutes?: number;
+  reminderLeadTimeMinutes?: number;
 }
 
 export interface ListBusinessesOptions {
@@ -53,6 +55,9 @@ export class BusinessRepository {
         }),
         ...(input.cancellationWindowMinutes !== undefined && {
           cancellationWindowMinutes: input.cancellationWindowMinutes,
+        }),
+        ...(input.reminderLeadTimeMinutes !== undefined && {
+          reminderLeadTimeMinutes: input.reminderLeadTimeMinutes,
         }),
       },
     });
@@ -139,6 +144,9 @@ export class BusinessRepository {
         }),
         ...(input.cancellationWindowMinutes !== undefined && {
           cancellationWindowMinutes: input.cancellationWindowMinutes,
+        }),
+        ...(input.reminderLeadTimeMinutes !== undefined && {
+          reminderLeadTimeMinutes: input.reminderLeadTimeMinutes,
         }),
       },
     });

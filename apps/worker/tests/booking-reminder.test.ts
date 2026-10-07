@@ -81,6 +81,7 @@ beforeAll(async () => {
       ownerId: adminId,
       name: `Reminder Biz ${stamp}`,
       timezone: 'UTC',
+      reminderLeadTimeMinutes: 30,
     },
   });
   businessId = business.id;
@@ -125,7 +126,7 @@ describe('runBookingReminder', () => {
     expect(result.reminded).toBe(0);
   });
 
-  it('creates a reminder for a booking inside the 30-minute window', async () => {
+  it('creates a reminder for a booking inside the reminder lead time', async () => {
     const bookingId = await createConfirmedBooking({
       startAtOffsetMs: 15 * 60_000,
     });
@@ -142,10 +143,12 @@ describe('runBookingReminder', () => {
 
     const metadata = events[0]!.metadata as {
       startAt?: string;
-      windowMinutes?: number;
+      leadTimeMinutes?: number;
+      notifiedCustomerId?: string;
     };
-    expect(metadata.windowMinutes).toBe(30);
+    expect(metadata.leadTimeMinutes).toBe(30);
     expect(typeof metadata.startAt).toBe('string');
+    expect(metadata.notifiedCustomerId).toBe(customerId);
   });
 
   it('does not remind for a booking far in the future', async () => {
@@ -202,7 +205,7 @@ describe('runBookingReminder', () => {
     expect(events.length).toBe(0);
   });
 
-  it('does not remind for a pending booking within the 30-minute window', async () => {
+  it('does not remind for a pending booking within the reminder window', async () => {
     const bookingId = await createConfirmedBooking({
       startAtOffsetMs: 15 * 60_000,
       status: 'pending',
@@ -216,7 +219,7 @@ describe('runBookingReminder', () => {
     expect(events.length).toBe(0);
   });
 
-  it('does not remind for a booking starting just outside the 30-minute window (e.g. 35 minutes)', async () => {
+  it('does not remind for a booking starting just outside the lead time (e.g. 35 minutes)', async () => {
     const bookingId = await createConfirmedBooking({
       startAtOffsetMs: 35 * 60_000,
     });

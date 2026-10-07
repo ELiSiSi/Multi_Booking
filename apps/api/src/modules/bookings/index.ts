@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 
+import { prisma, PrismaUnitOfWork } from '@reservio/database';
+import { TransitionBookingUseCase } from '@reservio/booking-core';
+
 import { AvailabilityCache } from '../availability/repositories/availability-cache.js';
 import { AvailabilityRepository } from '../availability/repositories/availability.repository.js';
 import { BusinessRepository } from '../catalog/repositories/business.repository.js';
-import { AuditRepository } from './repositories/audit.repository.js';
 import { BookingRepository } from './repositories/booking.repository.js';
 import { IdempotencyRepository } from './repositories/idempotency.repository.js';
 import { buildBookingRoutes } from './routes/booking.routes.js';
@@ -13,26 +15,21 @@ import {
   IdempotencyService,
   ListBusinessBookingsUseCase,
   ListMyBookingsUseCase,
-  TransitionBookingUseCase,
 } from './use-cases/index.js';
 
 export async function registerBookingModule(
   app: FastifyInstance,
 ): Promise<void> {
   const bookingRepository = new BookingRepository();
-  const auditRepository = new AuditRepository();
   const idempotencyRepository = new IdempotencyRepository();
   const businessRepository = new BusinessRepository();
   const availabilityCache = new AvailabilityCache();
   const availabilityRepository = new AvailabilityRepository();
 
-  const createBooking = new CreateBookingUseCase(availabilityRepository);
+  const uow = new PrismaUnitOfWork(prisma);
+  const transitionBooking = new TransitionBookingUseCase(uow);
 
-  const transitionBooking = new TransitionBookingUseCase(
-    bookingRepository,
-    auditRepository,
-    businessRepository,
-  );
+  const createBooking = new CreateBookingUseCase(availabilityRepository);
 
   const getBooking = new GetBookingUseCase(
     bookingRepository,
@@ -57,6 +54,8 @@ export async function registerBookingModule(
       listBusinessBookings,
       idempotency,
       availabilityCache,
+      bookingRepository,
+      businessRepository,
     }),
   );
 }

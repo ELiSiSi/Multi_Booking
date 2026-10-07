@@ -1,7 +1,7 @@
 # Reservio — Multi-Business Booking Platform
 
-> **Status:** Phase 4 (Availability Engine) complete · **571 tests** passing · **164 smoke assertions** green  
-> Next milestone: Phase 5 — Booking Engine
+> **Status:** Phase 6 (Operational Reliability) complete · **599 tests** passing · **164 smoke assertions** green  
+> Next milestone: Phase 7 — Frontend
 
 ---
 
@@ -406,7 +406,7 @@ Use `postgres:5432` / `redis:6379` when everything runs inside Docker.
 
 ---
 
-## Test Coverage (Phase 4 — 571 tests, 100% pass)
+## Test Coverage (Phase 6 — 599 tests, 100% pass)
 
 | File                                              | Type        | Count |
 | ------------------------------------------------- | ----------- | ----- |
@@ -430,7 +430,9 @@ Use `postgres:5432` / `redis:6379` when everything runs inside Docker.
 | `apps/api/tests/availability-exceptions.test.ts`  | Integration | 27    |
 | `apps/api/tests/availability-cache.test.ts`       | Integration | 3     |
 | `apps/api/tests/slot-engine.test.ts`              | Integration | 25    |
-| **Total Vitest**                                  |             | **571** |
+| `apps/api/tests/booking.test.ts`                  | Integration | 17    |
+| `apps/api/tests/booking-idempotency.test.ts`      | Integration | 11    |
+| **Total Vitest**                                  |             | **599** |
 | `scripts/smoke/run-all.ps1`                       | E2E (Smoke) | **164 assertions** |
 
 ---
@@ -443,8 +445,9 @@ Use `postgres:5432` / `redis:6379` when everything runs inside Docker.
 | 2     | Identity & Access          | ✅ Complete (304 tests)   |
 | 3     | Business & Catalog (CRUD)  | ✅ Complete (471 tests)   |
 | 4     | Availability Engine        | ✅ Complete (571 tests)   |
-| 5     | Booking Engine             | 🔜 Next                  |
-| 6     | Frontend                   | 🔜 Future                |
+| 5     | Booking Engine             | ✅ Complete               |
+| 6     | V1 Operational Reliability | ✅ Complete               |
+| 7     | Frontend                   | 🔜 Next                  |
 
 ---
 

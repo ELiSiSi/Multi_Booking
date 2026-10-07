@@ -22,3 +22,10 @@ export type {
   AvailabilityExceptionType,
   BookingStatus,
 } from '@prisma/client';
+
+// ─── Repositories & Locks ─────────────────────────────
+export { advisoryLockIdFromResource, lockResource } from './locks.js';
+export { PrismaBookingRepository } from './repositories/booking.repository.js';
+export { PrismaAuditRepository } from './repositories/audit.repository.js';
+export { PrismaBusinessRepository } from './repositories/business.repository.js';
+export { PrismaUnitOfWork } from './unit-of-work.js';

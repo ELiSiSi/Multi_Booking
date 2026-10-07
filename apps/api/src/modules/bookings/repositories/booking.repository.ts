@@ -1,8 +1,7 @@
 import { prisma, type Booking, type BookingStatus } from '@reservio/database';
 
 import { decodeCursor, encodeCursor } from '../../catalog/repositories/_cursor.js';
-import { ACTIVE_BOOKING_STATUSES } from '../domain/booking-status.js';
-
+import { ACTIVE_BOOKING_STATUSES } from '@reservio/booking-core';
 export interface CreateBookingRecordInput {
   businessId: string;
   locationId: string;
@@ -90,7 +89,7 @@ export class BookingRepository {
     return prisma.booking.findMany({
       where: {
         resourceId,
-        status: { in: ACTIVE_BOOKING_STATUSES },
+       status: { in: [...ACTIVE_BOOKING_STATUSES] },
         startAt: { lt: to },
         endAt: { gt: from },
         ...(excludeBookingId && { id: { not: excludeBookingId } }),

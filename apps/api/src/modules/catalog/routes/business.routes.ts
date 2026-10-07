@@ -23,6 +23,7 @@ const createBusinessBodySchema = {
     defaultBufferMinutes: { type: 'integer', minimum: 0, maximum: 1440 },
     pendingTimeoutMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
     cancellationWindowMinutes: { type: 'integer', minimum: 0, maximum: 10080 },
+    reminderLeadTimeMinutes: { type: 'integer', minimum: 0, maximum: 10080 },
   },
 } as const;
 
@@ -37,6 +38,7 @@ const updateBusinessBodySchema = {
     defaultBufferMinutes: { type: 'integer', minimum: 0, maximum: 1440 },
     pendingTimeoutMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
     cancellationWindowMinutes: { type: 'integer', minimum: 0, maximum: 10080 },
+    reminderLeadTimeMinutes: { type: 'integer', minimum: 0, maximum: 10080 },
   },
 } as const;
 
@@ -65,6 +67,7 @@ interface CreateBusinessBody {
   defaultBufferMinutes?: number;
   pendingTimeoutMinutes?: number;
   cancellationWindowMinutes?: number;
+  reminderLeadTimeMinutes?: number;
 }
 
 interface UpdateBusinessBody {
@@ -74,6 +77,7 @@ interface UpdateBusinessBody {
   defaultBufferMinutes?: number;
   pendingTimeoutMinutes?: number;
   cancellationWindowMinutes?: number;
+  reminderLeadTimeMinutes?: number;
 }
 
 interface ListQuery {
@@ -115,6 +119,9 @@ export function buildBusinessRoutes(
           ...(body.cancellationWindowMinutes !== undefined && {
             cancellationWindowMinutes: body.cancellationWindowMinutes,
           }),
+          ...(body.reminderLeadTimeMinutes !== undefined && {
+            reminderLeadTimeMinutes: body.reminderLeadTimeMinutes,
+          }),
         });
 
         reply.code(201).send({ data: result.business });
@@ -151,6 +158,9 @@ export function buildBusinessRoutes(
           }),
           ...(body.cancellationWindowMinutes !== undefined && {
             cancellationWindowMinutes: body.cancellationWindowMinutes,
+          }),
+          ...(body.reminderLeadTimeMinutes !== undefined && {
+            reminderLeadTimeMinutes: body.reminderLeadTimeMinutes,
           }),
         });
 

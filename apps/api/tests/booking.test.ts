@@ -132,7 +132,7 @@ beforeAll(async () => {
     headers: authHeader(admin),
   });
 
-  for (const weekday of [ 1, 2, 3, 4, 5, 6 ,7]) {
+  for (const weekday of [1, 2, 3, 4, 5, 6, 7]) {
     await prisma.availabilityRule.create({
       data: {
         resourceId,
@@ -707,24 +707,54 @@ describe('Booking — Transitions (Confirm / Cancel / Complete / No-Show)', () =
       expect(res.statusCode).toBe(403);
     });
 
-    it('admin completes a confirmed booking', async () => {
+    it('rejects completion before endAt + bufferMinutes (409)', async () => {
+      // confirmedBookingId is scheduled for 2029 — its protected
+      // interval has not elapsed yet, so canComplete() rejects it.
       const res = await app.inject({
         method: 'POST',
         url: `/bookings/${confirmedBookingId}/complete`,
         headers: authHeader(admin),
       });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().data.status).toBe('completed');
+      expect(res.statusCode).toBe(409);
     });
 
-    it('rejects invalid transition (completed -> cancelled)', async () => {
+    it('admin completes a past confirmed booking (200)', async () => {
+      // A booking whose endAt + bufferMinutes is already in the past
+      // is completable. Build one directly via Prisma to control the
+      // start/end timestamps precisely.
+      const pastBooking = await prisma.booking.create({
+        data: {
+          businessId,
+          locationId,
+          resourceId,
+          serviceId,
+          customerId: customer.id,
+          startAt: new Date(Date.now() - 2 * 3600_000),
+          endAt: new Date(Date.now() - 1 * 3600_000),
+          durationMinutes: 60,
+          bufferMinutes: 0,
+          priceCents: 5000,
+          currency: 'USD',
+          status: 'confirmed',
+        },
+      });
+
       const res = await app.inject({
         method: 'POST',
-        url: `/bookings/${confirmedBookingId}/cancel`,
+        url: `/bookings/${pastBooking.id}/complete`,
+        headers: authHeader(admin),
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data.status).toBe('completed');
+
+      // Now this booking is completed — cancelling it must fail.
+      const cancelRes = await app.inject({
+        method: 'POST',
+        url: `/bookings/${pastBooking.id}/cancel`,
         headers: authHeader(admin),
         payload: {},
       });
-      expect(res.statusCode).toBe(409);
+      expect(cancelRes.statusCode).toBe(409);
     });
   });
 

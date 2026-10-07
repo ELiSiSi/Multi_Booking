@@ -1,24 +1,27 @@
-import type { BookingStatus } from '@reservio/database';
+import type { BookingStatus } from './booking-status.js';
 
-export const ACTIVE_BOOKING_STATUSES: BookingStatus[] = [
+export const ACTIVE_BOOKING_STATUSES: readonly BookingStatus[] = [
   'pending',
   'confirmed',
   'no_show',
-];
+] as const;
 
-export const TERMINAL_BOOKING_STATUSES: BookingStatus[] = [
+export const TERMINAL_BOOKING_STATUSES: readonly BookingStatus[] = [
   'cancelled',
   'completed',
   'no_show',
-];
+] as const;
 
-export const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
+export const ALLOWED_TRANSITIONS: Record<
+  BookingStatus,
+  readonly BookingStatus[]
+> = {
   pending: ['confirmed', 'cancelled'],
-  confirmed: ['completed', 'cancelled', 'no_show'],
+  confirmed: ['cancelled', 'completed', 'no_show'],
   cancelled: [],
   completed: [],
   no_show: [],
-};
+} as const;
 
 export function canTransition(
   from: BookingStatus,

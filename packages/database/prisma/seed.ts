@@ -117,6 +117,7 @@ async function seedSalon(ownerId: string): Promise<void> {
         timezone: 'Africa/Cairo',
         slotGranularityMinutes: 15,
         defaultBufferMinutes: 0,
+        reminderLeadTimeMinutes: 30,
       },
     });
 
@@ -208,6 +209,7 @@ async function seedClinic(ownerId: string): Promise<void> {
         defaultBufferMinutes: 10,
         pendingTimeoutMinutes: 20,
         cancellationWindowMinutes: 240,
+        reminderLeadTimeMinutes: 60,
       },
     });
 
@@ -310,6 +312,7 @@ async function seedSportsCenter(ownerId: string): Promise<void> {
         timezone: 'Africa/Cairo',
         slotGranularityMinutes: 30,
         defaultBufferMinutes: 5,
+        reminderLeadTimeMinutes: 120,
       },
     });
 

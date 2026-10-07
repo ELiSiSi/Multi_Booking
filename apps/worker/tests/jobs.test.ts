@@ -146,7 +146,7 @@ describe('runPendingBookingExpiration', () => {
       where: { id: bookingId },
     });
     expect(after?.status).toBe('cancelled');
-    expect(after?.cancellationReason).toBe('pending_timeout');
+    expect(after?.cancellationReason).toBe('EXPIRATION_TIMEOUT');
   });
 
   it('does not cancel a pending booking within its timeout window', async () => {
@@ -184,7 +184,7 @@ describe('runPendingBookingExpiration', () => {
     };
     expect(metadata.from).toBe('pending');
     expect(metadata.to).toBe('cancelled');
-    expect(metadata.reason).toBe('pending_timeout');
+    expect(metadata.reason).toBe('EXPIRATION_TIMEOUT');
   });
 
   it('is idempotent — running twice does not change already-cancelled bookings', async () => {

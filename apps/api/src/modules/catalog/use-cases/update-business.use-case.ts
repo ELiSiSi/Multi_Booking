@@ -21,6 +21,7 @@ export interface UpdateBusinessUseCaseInput {
   defaultBufferMinutes?: number;
   pendingTimeoutMinutes?: number;
   cancellationWindowMinutes?: number;
+  reminderLeadTimeMinutes?: number;
 }
 
 export interface UpdateBusinessOutput {
@@ -82,6 +83,9 @@ export class UpdateBusinessUseCase {
     }
     if (input.cancellationWindowMinutes !== undefined) {
       patch.cancellationWindowMinutes = input.cancellationWindowMinutes;
+    }
+    if (input.reminderLeadTimeMinutes !== undefined) {
+      patch.reminderLeadTimeMinutes = input.reminderLeadTimeMinutes;
     }
 
     const business = await this.businessRepository.update(

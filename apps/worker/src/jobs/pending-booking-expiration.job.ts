@@ -1,5 +1,12 @@
-﻿import { prisma } from '@reservio/database';
+﻿import {
+  SYSTEM_ACTOR_ID,
+  TransitionBookingUseCase,
+} from '@reservio/booking-core';
+import { PrismaUnitOfWork, prisma } from '@reservio/database';
 import { redis } from '@reservio/redis';
+
+const uow = new PrismaUnitOfWork(prisma);
+const transitionBooking = new TransitionBookingUseCase(uow);
 
 export interface PendingExpirationResult {
   scanned: number;
@@ -27,7 +34,6 @@ async function invalidateAvailabilityForResource(
       cursor = next;
     } while (cursor !== '0');
   } catch (error) {
-    // Redis is a performance layer only; log and continue.
     console.error('[worker] cache invalidation failed:', error);
   }
 }
@@ -56,34 +62,45 @@ export async function runPendingBookingExpiration(
       continue;
     }
 
-    const updated = await prisma.booking.updateMany({
-      where: { id: booking.id, status: 'pending' },
-      data: {
-        status: 'cancelled',
-        cancelledAt: now,
-        cancellationReason: 'pending_timeout',
-      },
+    // Pre-check: did a prior attempt of this same job already perform
+    // the transition? If so, only the cache invalidation remains.
+    const current = await prisma.booking.findUnique({
+      where: { id: booking.id },
+      select: { status: true, cancellationReason: true },
     });
 
-    if (updated.count > 0) {
-      cancelled += 1;
+    if (!current) continue;
 
-      await prisma.auditEvent.create({
-        data: {
+    const alreadyExpiredByUs =
+      current.status === 'cancelled' &&
+      current.cancellationReason === 'EXPIRATION_TIMEOUT';
+
+    if (!alreadyExpiredByUs) {
+      // Lost the race to a concurrent API call (admin confirmed /
+      // customer cancelled) — the core would reject this anyway.
+      if (current.status !== 'pending') continue;
+
+      try {
+        await transitionBooking.execute({
           bookingId: booking.id,
-          actorId: booking.customerId,
-          action: 'booking.cancelled',
-          metadata: {
-            from: 'pending',
-            to: 'cancelled',
-            reason: 'pending_timeout',
-          },
-        },
-      });
-
-      // Post-commit cache invalidation.
-      await invalidateAvailabilityForResource(booking.resourceId);
+          actor: { userId: SYSTEM_ACTOR_ID, role: 'system' },
+          to: 'cancelled',
+          cancellationReason: 'EXPIRATION_TIMEOUT',
+        });
+        cancelled += 1;
+      } catch (err) {
+        // Business error (lost race, invalid state, timing guard).
+        // Do not retry — just skip invalidation for this booking.
+        console.error(
+          `[worker] pending expiration transition failed for ${booking.id}:`,
+          err,
+        );
+        continue;
+      }
     }
+
+
+    await invalidateAvailabilityForResource(booking.resourceId);
   }
 
   return { scanned: candidates.length, cancelled };

@@ -1,15 +1,18 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { Prisma } from '@reservio/database';
+import type { TransitionBookingUseCase } from '@reservio/booking-core';
 
 import type { AvailabilityCache } from '../../availability/repositories/availability-cache.js';
+import type { BusinessRepository } from '../../catalog/repositories/business.repository.js';
+import type { BookingRepository } from '../repositories/booking.repository.js';
 import type {
   CreateBookingUseCase,
   GetBookingUseCase,
   IdempotencyService,
   ListBusinessBookingsUseCase,
   ListMyBookingsUseCase,
-  TransitionBookingUseCase,
 } from '../use-cases/index.js';
+import { BookingNotFoundError } from '../use-cases/booking.errors.js';
 
 export interface BookingRoutesDeps {
   createBooking: CreateBookingUseCase;
@@ -19,6 +22,8 @@ export interface BookingRoutesDeps {
   listBusinessBookings: ListBusinessBookingsUseCase;
   idempotency: IdempotencyService;
   availabilityCache: AvailabilityCache;
+  bookingRepository: BookingRepository;
+  businessRepository: BusinessRepository;
 }
 
 const bookingIdParamsSchema = {
@@ -92,6 +97,29 @@ interface ListQuery {
 
 interface CancelBody {
   reason?: string;
+}
+
+async function assertCanTransition(
+  deps: BookingRoutesDeps,
+  actorId: string,
+  actorRole: 'admin' | 'customer',
+  bookingId: string,
+): Promise<void> {
+  if (actorRole !== 'admin') return;
+
+  const booking = await deps.bookingRepository.findById(bookingId);
+  if (!booking) {
+    throw new BookingNotFoundError(bookingId);
+  }
+
+  const business = await deps.businessRepository.findByIdAndOwner(
+    booking.businessId,
+    actorId,
+  );
+
+  if (!business) {
+    throw new BookingNotFoundError(bookingId);
+  }
 }
 
 export function buildBookingRoutes(deps: BookingRoutesDeps): FastifyPluginAsync {
@@ -237,11 +265,12 @@ export function buildBookingRoutes(deps: BookingRoutesDeps): FastifyPluginAsync 
         const actor = request.actor;
         const params = request.params;
 
+        await assertCanTransition(deps, actor.userId, actor.role, params.id);
+
         const result = await deps.transitionBooking.execute({
-          actorId: actor.userId,
-          actorRole: actor.role,
           bookingId: params.id,
-          target: 'confirmed',
+          actor: { userId: actor.userId, role: actor.role },
+          to: 'confirmed',
         });
 
         await deps.availabilityCache.invalidateForResource(
@@ -266,11 +295,12 @@ export function buildBookingRoutes(deps: BookingRoutesDeps): FastifyPluginAsync 
         const params = request.params;
         const body = request.body;
 
+        await assertCanTransition(deps, actor.userId, actor.role, params.id);
+
         const result = await deps.transitionBooking.execute({
-          actorId: actor.userId,
-          actorRole: actor.role,
           bookingId: params.id,
-          target: 'cancelled',
+          actor: { userId: actor.userId, role: actor.role },
+          to: 'cancelled',
           ...(body.reason !== undefined && {
             cancellationReason: body.reason,
           }),
@@ -294,11 +324,12 @@ export function buildBookingRoutes(deps: BookingRoutesDeps): FastifyPluginAsync 
         const actor = request.actor;
         const params = request.params;
 
+        await assertCanTransition(deps, actor.userId, actor.role, params.id);
+
         const result = await deps.transitionBooking.execute({
-          actorId: actor.userId,
-          actorRole: actor.role,
           bookingId: params.id,
-          target: 'completed',
+          actor: { userId: actor.userId, role: actor.role },
+          to: 'completed',
         });
 
         await deps.availabilityCache.invalidateForResource(
@@ -319,11 +350,12 @@ export function buildBookingRoutes(deps: BookingRoutesDeps): FastifyPluginAsync 
         const actor = request.actor;
         const params = request.params;
 
+        await assertCanTransition(deps, actor.userId, actor.role, params.id);
+
         const result = await deps.transitionBooking.execute({
-          actorId: actor.userId,
-          actorRole: actor.role,
           bookingId: params.id,
-          target: 'no_show',
+          actor: { userId: actor.userId, role: actor.role },
+          to: 'no_show',
         });
 
         await deps.availabilityCache.invalidateForResource(

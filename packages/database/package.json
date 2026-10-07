@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "@reservio/booking-core": "workspace:*",
     "@reservio/shared": "workspace:*",
     "argon2": "^0.45.1"
   },

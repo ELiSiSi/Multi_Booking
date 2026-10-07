@@ -47,6 +47,9 @@ importers:
       '@fastify/swagger-ui':
         specifier: ^5.2.0
         version: 5.2.6
+      '@reservio/booking-core':
+        specifier: workspace:*
+        version: link:../../packages/booking-core
       '@reservio/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -96,6 +99,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@reservio/booking-core':
+        specifier: workspace:*
+        version: link:../../packages/booking-core
       '@reservio/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -133,9 +139,9 @@ importers:
 
   packages/booking-core:
     dependencies:
-      '@reservio/database':
+      '@reservio/shared':
         specifier: workspace:*
-        version: link:../database
+        version: link:../shared
     devDependencies:
       typescript:
         specifier: ^5.6.3
@@ -156,6 +162,9 @@ importers:
       '@prisma/client':
         specifier: ^5.22.0
         version: 5.22.0(prisma@5.22.0)
+      '@reservio/booking-core':
+        specifier: workspace:*
+        version: link:../booking-core
       '@reservio/shared':
         specifier: workspace:*
         version: link:../shared

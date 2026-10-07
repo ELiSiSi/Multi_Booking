@@ -70,6 +70,7 @@ model Business {
   defaultBufferMinutes      Int    @default(0)
   pendingTimeoutMinutes     Int    @default(15)
   cancellationWindowMinutes Int    @default(120)
+  reminderLeadTimeMinutes   Int    @default(30)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -234,8 +235,8 @@ model Booking {
 
   status         BookingStatus @default(pending)
 
-  startAt        DateTime
-  endAt          DateTime
+  startAt        DateTime @db.Timestamptz(3)
+  endAt          DateTime @db.Timestamptz(3)
 
   durationMinutes Int
   bufferMinutes   Int

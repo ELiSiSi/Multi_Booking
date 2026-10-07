@@ -16,6 +16,7 @@ export interface CreateBusinessInput {
   defaultBufferMinutes?: number;
   pendingTimeoutMinutes?: number;
   cancellationWindowMinutes?: number;
+  reminderLeadTimeMinutes?: number;
 }
 
 export interface CreateBusinessOutput {
@@ -67,6 +68,9 @@ export class CreateBusinessUseCase {
       }),
       ...(input.cancellationWindowMinutes !== undefined && {
         cancellationWindowMinutes: input.cancellationWindowMinutes,
+      }),
+      ...(input.reminderLeadTimeMinutes !== undefined && {
+        reminderLeadTimeMinutes: input.reminderLeadTimeMinutes,
       }),
     });
 
