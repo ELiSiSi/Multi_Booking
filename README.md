@@ -349,30 +349,57 @@ Both the API and the Worker consume this package. Neither defines its own state 
 
 ## Quick Start
 
+There are two supported ways to run the project locally:
+
+- **(A) Host mode** — API and Worker run on your machine, only Postgres + Redis run in Docker.
+  This is the default and the recommended way for day-to-day development.
+- **(B) Full Docker mode** — everything runs inside Docker Compose.
+
+The `.env.example` defaults to **Host mode (A)**. If you prefer Full Docker (B), there
+are commented instructions in `.env.example` showing the two lines you need to change.
+
+---
+
 ### 1. Prerequisites
 
-Node.js >= 24, pnpm, Docker Desktop
+- Node.js >= 24
+- pnpm
+- Docker Desktop (or any Docker-compatible runtime)
+
+---
 
 ### 2. Environment
 
+Copy the template and generate the required Ed25519 key pair:
+
 ```bash
 cp .env.example .env
-# Fill in ACCESS_TOKEN_PRIVATE_KEY and ACCESS_TOKEN_PUBLIC_KEY (Ed25519 PEM)
-# For local dev (running API outside Docker), update URLs to use host ports:
-#   DATABASE_URL=postgresql://reservio:reservio@localhost:5433/reservio
-#   REDIS_URL=redis://localhost:6380
 ```
 
-Generate Ed25519 key pair (development only):
+Then generate a development-only Ed25519 key pair and write it directly into `.env`:
 
 ```bash
 node -e "
+const fs = require('fs');
 const c = require('crypto');
 const { privateKey, publicKey } = c.generateKeyPairSync('ed25519');
-console.log('PRIVATE:', privateKey.export({ type:'pkcs8', format:'pem' }));
-console.log('PUBLIC:', publicKey.export({ type:'spki', format:'pem' }));
+const priv = privateKey.export({ type:'pkcs8', format:'pem' }).replace(/\n/g, '\\\\n');
+const pub  = publicKey.export({ type:'spki',  format:'pem' }).replace(/\n/g, '\\\\n');
+let env = fs.readFileSync('.env', 'utf8');
+env = env.replace(/^ACCESS_TOKEN_PRIVATE_KEY=.*$/m, 'ACCESS_TOKEN_PRIVATE_KEY=\"' + priv + '\"');
+env = env.replace(/^ACCESS_TOKEN_PUBLIC_KEY=.*$/m,  'ACCESS_TOKEN_PUBLIC_KEY=\"'  + pub  + '\"');
+fs.writeFileSync('.env', env);
+console.log('✓ Ed25519 keys written to .env');
 "
 ```
+
+**The API will NOT start without these keys.** The `.env.example` ships with empty
+placeholders on purpose — real keys must never be committed to git.
+
+If you are running the API from your host (the default), the `.env` already points to
+`localhost:5433` for Postgres and `localhost:6380` for Redis. If you instead want to
+run everything inside Docker, edit `.env` and switch those two lines to the
+Docker-internal values (commented in `.env.example`).
 
 ### 3. Dependencies
 
@@ -380,7 +407,7 @@ console.log('PUBLIC:', publicKey.export({ type:'spki', format:'pem' }));
 pnpm install
 ```
 
-### 4. Start infrastructure
+### 4. Start infrastructure (Postgres + Redis)
 
 ```bash
 docker compose up -d postgres redis
@@ -388,40 +415,79 @@ docker compose up -d postgres redis
 # Redis    -> localhost:6380
 ```
 
+Wait until both containers report healthy:
+
+```bash
+docker ps
+```
+
 ### 5. Database migration and seed
 
-Run migrations and (optionally) seeds through the dedicated db-tools service:
+With the infra running, apply migrations and (optionally) seeds from the host:
 
 ```bash
-docker compose run --rm db-tools pnpm db:migrate
-docker compose run --rm db-tools pnpm db:seed
+pnpm --filter @reservio/database migrate:deploy
+pnpm --filter @reservio/database seed
 ```
 
-Or, if running against a local Postgres:
+The seed creates three sample verticals (Salon, Clinic, Sports Center) and two users:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Admin | admin@reservio.local | AdminPassword!123 |
+| Customer | customer@reservio.local | CustomerPassword!123 |
+
+**Full Docker alternative:** if you prefer to run migrations through the containerised
+tooling instead of from the host, use `docker compose run --rm db-tools pnpm db:migrate`
+and `docker compose run --rm db-tools pnpm db:seed` instead. In that case your `.env`
+must use the Docker-internal hostnames (`postgres:5432`, `redis:6379`).
+
+### 6. Run API and Worker (host mode)
+
+In one terminal:
 
 ```bash
-pnpm db:migrate       # dev (creates migration files)
-pnpm db:generate      # regenerate Prisma client after schema changes
-pnpm db:seed          # seed development data (3 verticals)
+pnpm dev:api
+# API     -> http://localhost:3000
+# Swagger -> http://localhost:3000/docs
 ```
 
-### 6. Run API and Worker locally
+In a second terminal:
 
 ```bash
-pnpm dev:api          # tsx watch with .env loaded automatically
-# Swagger UI -> http://localhost:3000/docs
-
 pnpm --filter @reservio/worker dev
-# BullMQ worker — pending-booking-expiration + booking-reminder
+# BullMQ worker — processes pending-expiration and booking-reminder jobs
 ```
 
-### 7. Run the full stack inside Docker
+### 7. Run the full stack inside Docker (alternative)
+
+If you prefer everything to run in Docker, first switch `.env` to the Docker-internal
+hostnames (see `.env.example`), then:
 
 ```bash
 docker compose up -d --build
 # API    -> http://localhost:3000
 # Worker -> processes the booking-jobs queue
-# Uses the internal Docker network for DB/Redis
+# Postgres + Redis use the internal Docker network
+```
+
+Migrations and seeds must also use the Docker-internal hostnames — run them through
+`db-tools` (see step 5).
+
+### 8. Verify the API is alive
+
+```bash
+curl http://localhost:3000/health
+# {"status":"ok","timestamp":"..."}
+```
+
+Try logging in with the seeded admin account:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@reservio.local","password":"AdminPassword!123"}'
+# {"user":{...},"accessToken":"eyJ..."}
 ```
 
 ---
