@@ -1,7 +1,7 @@
 # Reservio — Multi-Business Booking Platform
 
 > **Status:** Phase 6 (Operational Reliability) complete · **599 tests** passing · **164 smoke assertions** green  
-> Next milestone: Phase 7 — Frontend
+> Next milestone: Phase 7 — Quality & Handover
 
 ---
 
@@ -17,7 +17,9 @@ Reservio is a **multi-tenant booking platform** where each business owner (admin
 6. Define **Availability Rules** (weekly working hours) and **Exceptions** (holidays, custom hours, breaks).
 7. The platform's **Availability Engine** computes open slots in real-time, respecting timezone, breaks, buffers, existing bookings, and caching.
 
-Customers will eventually be able to browse services and book available slots (Phase 5).
+Customers can create bookings against those services, and the platform enforces
+double-booking prevention through the PostgreSQL exclusion constraint, snapshotted
+buffers, and a shared booking core consumed by both the API and the Worker.
 
 ---
 
@@ -27,48 +29,74 @@ Customers will eventually be able to browse services and book available slots (P
 | --------------------- | ---------------------------------------------------- |
 | Runtime               | Node.js >= 24                                        |
 | Language              | TypeScript 5.6 (strict, ESNext/NodeNext)             |
-| Monorepo              | pnpm 9 workspaces                                    |
+| Monorepo              | pnpm workspaces                                      |
 | HTTP Framework        | Fastify 5                                            |
-| ORM                   | Prisma 6 + PostgreSQL 16                             |
+| ORM                   | Prisma 5.22 + PostgreSQL 16                          |
 | Cache / Queue backend | Redis 7 (ioredis)                                    |
-| Job queue             | BullMQ                                               |
+| Job queue             | BullMQ 5                                             |
 | Testing               | Vitest (unit + integration, real DB/Redis)            |
 | E2E Smoke Tests       | PowerShell scripts (`scripts/smoke/`)                |
 | API docs              | OpenAPI 3 via @fastify/swagger + Swagger UI at /docs |
 | CI                    | GitHub Actions (lint, typecheck, test on every push) |
-| Containerization      | Docker Compose (Postgres, Redis, API)                |
+| Containerization      | Docker Compose (Postgres, Redis, API, Worker, db-tools) |
 
 ---
 
 ## Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      Fastify API                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐   │
-│  │ Identity │  │ Catalog  │  │    Availability      │   │
-│  │ Module   │  │ Module   │  │    Module             │   │
-│  │ (Auth)   │  │ (CRUD)   │  │ (Rules, Exceptions,  │   │
-│  │          │  │          │  │  Engine, Cache)       │   │
-│  └────┬─────┘  └────┬─────┘  └────┬─────────────────┘   │
+```text
+┌──────────────────────────────────────────────────────────┐
+│                      Fastify API (apps/api)              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐    │
+│  │ Identity │  │ Catalog  │  │    Availability      │    │
+│  │ Module   │  │ Module   │  │    Module            │    │
+│  │ (Auth)   │  │ (CRUD)   │  │ (Rules, Exceptions,  │    │
+│  │          │  │          │  │  Engine, Cache)      │    │
+│  └────┬─────┘  └────┬─────┘  └────┬─────────────────┘    │
 │       │             │             │                      │
-│  ┌────┴─────────────┴─────────────┴─────────────────┐   │
-│  │              Repositories (Data Access)           │   │
-│  └──────────┬──────────────────────┬────────────────┘   │
-│             │                      │                     │
-└─────────────┼──────────────────────┼─────────────────────┘
-              │                      │
-        ┌─────┴─────┐         ┌──────┴──────┐
-        │PostgreSQL │         │   Redis     │
-        │  (Source   │         │  (Cache +   │
-        │  of Truth) │         │   Queue)    │
-        └───────────┘         └─────────────┘
+│  ┌────┴─────────────┴─────────────┴─────────────────┐    │
+│  │   Bookings Module (routes only — thin adapters)  │    │
+│  └──────────────────────────┬───────────────────────┘    │
+└─────────────────────────────┼────────────────────────────┘
+                              │
+                    ┌─────────┴────────┐
+                    │    @reservio/    │
+                    │   booking-core   │ ← Single authoritative
+                    │    (domain +     │   booking domain
+                    │    use cases)    │
+                    └─────────┬────────┘
+                              │
+              ┌───────────────┴────────────────┐
+              │                                │
+    ┌─────────┴──────────┐           ┌─────────┴──────────┐
+    │     apps/worker    │           │  packages/database │
+    │   (BullMQ jobs)    │           │ (Prisma adapters)  │
+    └─────────┬──────────┘           └─────────┬──────────┘
+              │                                │
+              │                      ┌─────────┴──────────┐
+              │                      │    PostgreSQL      │
+              │                      │ (Source of Truth)  │
+              │                      └────────────────────┘
+              │
+    ┌─────────┴──────────┐
+    │       Redis        │
+    │  (Cache + BullMQ)  │
+    └────────────────────┘
 ```
 
 **Key design decisions:**
 
+- **Single authoritative booking core:** `packages/booking-core` owns the
+  booking state machine, lifecycle policies, and transition use case. Both the
+  API and the Worker consume the same `TransitionBookingUseCase` — no duplicate
+  state-machine logic across processes (design review correction C5).
 - **Clean Architecture per module:** Route → Use Case → Repository → Database.
 - **PostgreSQL is the single source of truth.** Redis is a cache only — never authoritative.
+- **Double-booking prevention is enforced by the database.** The `Booking`
+  table has an `EXCLUDE USING gist` constraint on the protected interval
+  `[startAt, endAt + bufferMinutes)` for active statuses
+  (`pending`, `confirmed`, `no_show`). A resource-level advisory lock serializes
+  concurrent transitions on the same resource.
 - **Security by obscurity:** If Admin A tries to access Admin B's resources, the API returns `404` (not `403`) to avoid leaking existence.
 - **Tenant isolation:** Every write operation verifies ownership through the business → location → resource chain.
 - **Cursor-based pagination:** All list endpoints use cursor pagination (not offset) for stable results.
@@ -97,20 +125,39 @@ Multi_Booking/
 │   │   │   │   │   ├── repositories/ # Rule/Exception CRUD repos, availability read repo, Redis cache
 │   │   │   │   │   ├── use-cases/    # CRUD rules/exceptions, get-availability, cache invalidation
 │   │   │   │   │   └── routes/       # /availability-rules/*, /availability-exceptions/*, /availability
+│   │   │   │   ├── bookings/         # Phase 5: Booking API presentation only
+│   │   │   │   │   ├── repositories/ # BookingRepository, AuditRepository, IdempotencyRepository
+│   │   │   │   │   ├── use-cases/    # Create (idempotent), Get, List (thin wrappers over booking-core)
+│   │   │   │   │   └── routes/       # /bookings/*, /businesses/:bid/bookings
 │   │   │   │   └── integration/      # Cross-module wiring (cache invalidation on catalog changes)
 │   │   │   ├── app.ts                # buildApp() — wires all plugins and modules
 │   │   │   └── server.ts             # main() — binds port, graceful shutdown
-│   │   └── tests/                    # 20 integration test files
+│   │   └── tests/                    # Integration + concurrency test files
 │   │
 │   └── worker/                       # Background job processor (BullMQ)
 │       ├── src/
-│       │   ├── jobs/                 # Job handlers (reminders, expirations)
-│       │   └── worker.ts             # Worker initialization
-│       └── tests/                    # Worker tests
+│       │   ├── jobs/                 # pending-booking-expiration, booking-reminder
+│       │   ├── scheduler.ts          # Registers repeatable jobs at startup
+│       │   └── worker.ts             # Worker initialization + graceful shutdown
+│       └── tests/                    # Worker job tests
 │
 ├── packages/                         # Shared internal libraries
+│   ├── booking-core/                 # Phase 5: Single authoritative Booking Domain
+│   │   ├── src/
+│   │   │   ├── domain/               # State machine, policies, errors, status types
+│   │   │   ├── application/
+│   │   │   │   ├── ports/            # BookingRepositoryPort, AuditRepositoryPort,
+│   │   │   │   │                     # BusinessRepositoryPort, ResourceLockPort, UnitOfWorkPort
+│   │   │   │   └── transition-booking.use-case.ts   # The single transition entry point
+│   │   │   └── index.ts
+│   │   └── package.json
 │   ├── config/                       # Environment variable validation (Zod)
 │   ├── database/                     # Prisma schema, migrations, generated client
+│   │   ├── prisma/                   # schema.prisma, migrations/, seed.ts
+│   │   └── src/
+│   │       ├── repositories/         # Prisma adapters implementing booking-core ports
+│   │       ├── locks.ts              # Advisory lock helpers
+│   │       └── unit-of-work.ts       # Prisma UnitOfWork implementing UnitOfWorkPort
 │   ├── queue/                        # BullMQ connection & job type definitions
 │   ├── redis/                        # Shared ioredis client singleton
 │   └── shared/                       # Cross-package utilities (errors, result, time)
@@ -129,9 +176,18 @@ Multi_Booking/
 │       ├── 09-availability.ps1       # GET /availability + cleanup
 │       └── run-all.ps1               # Orchestrator — runs all sections sequentially
 │
+├── docs/                             # Phase decision logs + reference PDFs
+│   ├── phase-1-decisions.md
+│   ├── phase-2-decisions.md
+│   ├── phase-3-decisions.md
+│   ├── phase-4-decisions.md
+│   ├── phase-5-decisions.md
+│   ├── phase-6-decisions.md          # Deliberate deviations documented (polling vs delayed jobs)
+│   └── Pdf/                          # Assessment + corrections reference PDFs
+│
 ├── infrastructure/docker/            # Dockerfiles for API, Worker, Tools
 ├── .github/workflows/ci.yml          # CI pipeline
-├── docker-compose.yml                # Postgres + Redis + API containers
+├── docker-compose.yml                # Postgres + Redis + API + Worker + db-tools
 └── tests/setup-env.ts                # Loads .env before Vitest runs
 ```
 
@@ -216,13 +272,26 @@ Multi_Booking/
 | ------ | ------------------------------------------------------------------------------------- | ------ | ------------------------------------ |
 | GET    | `/.../resources/:rid/services/:sid/availability?date=YYYY-MM-DD`                      | Public | Returns available booking slots      |
 
+### Bookings (`/bookings`)
+
+| Method | Path                       | Auth        | Description                                       |
+| ------ | -------------------------- | ----------- | ------------------------------------------------- |
+| POST   | `/bookings`                | Auth        | Create booking (requires Idempotency-Key header) → 201 |
+| GET    | `/bookings/mine`           | Customer    | List own bookings (paginated)                     |
+| GET    | `/bookings/:id`            | Owner/Admin | Get single booking                                |
+| GET    | `/businesses/:bid/bookings`| Admin       | List business bookings                            |
+| POST   | `/bookings/:id/confirm`    | Admin       | pending → confirmed                               |
+| POST   | `/bookings/:id/cancel`     | Owner/Admin | pending\|confirmed → cancelled                    |
+| POST   | `/bookings/:id/complete`   | Admin       | confirmed → completed (only after endAt + buffer) |
+| POST   | `/bookings/:id/no-show`    | Admin       | confirmed → no_show (only after startAt)          |
+
 ---
 
 ## Availability Engine — How It Works
 
 The engine answers: **"What time slots can a customer book for Resource X performing Service Y on Date Z?"**
 
-```
+```text
 1. Parse requested date
        ↓
 2. Resolve timezone (location → business → UTC)
@@ -253,18 +322,43 @@ The engine answers: **"What time slots can a customer book for Resource X perfor
 
 ---
 
+## Booking Core — How It Works
+
+The `packages/booking-core` package is the single authoritative home for the booking domain. It owns:
+
+- The booking state machine (pending, confirmed, cancelled, completed, no_show)
+- Lifecycle timing policies (cancellation window, completion window, no-show guard)
+- The `TransitionBookingUseCase` — the one place where a booking state transition is applied
+
+Both the API and the Worker consume this package. Neither defines its own state machine or duplicates transition logic.
+
+**Double-booking prevention — Defense in Depth:**
+
+1. PostgreSQL `EXCLUDE` constraint on `tstzrange(startAt, date_add(endAt, bufferMinutes, 'UTC'))`
+   for active statuses (pending, confirmed, no_show). This is the atomic
+   guarantee — it is enforced by the storage engine and cannot be bypassed.
+2. Resource-level advisory lock (`pg_advisory_xact_lock`) serializes competing
+   transitions on the same resource.
+3. Optimistic concurrency — the updateMany in the repository uses
+   `WHERE id = ? AND status = expectedStatus` so a stale transition is rejected.
+4. Snapshot semantics: Each booking stores its own `durationMinutes`, `bufferMinutes`,
+   and `priceCents` at creation time. Later changes to the resource or business policy
+   do not retroactively alter existing bookings.
+
+---
+
 ## Quick Start
 
 ### 1. Prerequisites
 
-- Node.js >= 24, pnpm 9, Docker Desktop
+Node.js >= 24, pnpm, Docker Desktop
 
 ### 2. Environment
 
 ```bash
 cp .env.example .env
 # Fill in ACCESS_TOKEN_PRIVATE_KEY and ACCESS_TOKEN_PUBLIC_KEY (Ed25519 PEM)
-# For local dev, update URLs to use localhost ports:
+# For local dev (running API outside Docker), update URLs to use host ports:
 #   DATABASE_URL=postgresql://reservio:reservio@localhost:5433/reservio
 #   REDIS_URL=redis://localhost:6380
 ```
@@ -289,53 +383,69 @@ pnpm install
 ### 4. Start infrastructure
 
 ```bash
-docker-compose up -d
+docker compose up -d postgres redis
 # Postgres -> localhost:5433
 # Redis    -> localhost:6380
 ```
 
-### 5. Database migration
+### 5. Database migration and seed
+
+Run migrations and (optionally) seeds through the dedicated db-tools service:
+
+```bash
+docker compose run --rm db-tools pnpm db:migrate
+docker compose run --rm db-tools pnpm db:seed
+```
+
+Or, if running against a local Postgres:
 
 ```bash
 pnpm db:migrate       # dev (creates migration files)
 pnpm db:generate      # regenerate Prisma client after schema changes
+pnpm db:seed          # seed development data (3 verticals)
 ```
 
-### 6. Run API
+### 6. Run API and Worker locally
 
 ```bash
 pnpm dev:api          # tsx watch with .env loaded automatically
 # Swagger UI -> http://localhost:3000/docs
+
+pnpm --filter @reservio/worker dev
+# BullMQ worker — pending-booking-expiration + booking-reminder
 ```
 
-### 7. Run full API inside Docker
+### 7. Run the full stack inside Docker
 
 ```bash
-docker compose up -d --build api
-# API -> http://localhost:3000 (uses internal Docker network for DB/Redis)
+docker compose up -d --build
+# API    -> http://localhost:3000
+# Worker -> processes the booking-jobs queue
+# Uses the internal Docker network for DB/Redis
 ```
 
 ---
 
 ## Available Scripts
 
-| Script                   | What it does                                   |
-| ------------------------ | ---------------------------------------------- |
-| `pnpm dev:api`           | Run API in watch mode                          |
-| `pnpm test`              | Run all 571 tests (Unit + Integration)         |
-| `pnpm test:unit`         | Only packages/*/tests (no DB/Redis needed)     |
-| `pnpm test:config`       | Config package tests only                      |
-| `pnpm test:shared`       | Shared package tests only                      |
-| `pnpm test:database`     | Prisma integration tests (needs DB)            |
-| `pnpm test:watch`        | Vitest in interactive watch mode               |
-| `pnpm typecheck`         | tsc --noEmit across all packages               |
-| `pnpm build`             | Build all packages                             |
-| `pnpm db:migrate`        | prisma migrate dev                             |
-| `pnpm db:migrate:deploy` | prisma migrate deploy (prod/CI)                |
-| `pnpm db:migrate:reset`  | Reset + re-apply all migrations                |
-| `pnpm db:seed`           | Run seed script                                |
-| `pnpm db:generate`       | Regenerate Prisma client                       |
-| `pnpm clean`             | Remove all dist/ and node_modules/             |
+| Script | What it does |
+| ------ | ------------ |
+| `pnpm dev:api` | Run API in watch mode |
+| `pnpm test` | Run all tests (Unit + Integration + Concurrency) |
+| `pnpm test:quiet` | Same, with minimal output |
+| `pnpm test:unit` | Only packages/*/tests (no DB/Redis needed) |
+| `pnpm test:config` | Config package tests only |
+| `pnpm test:shared` | Shared package tests only |
+| `pnpm test:database` | Prisma integration tests (needs DB) |
+| `pnpm test:watch` | Vitest in interactive watch mode |
+| `pnpm typecheck` | tsc --noEmit across all packages |
+| `pnpm build` | Build all packages |
+| `pnpm db:migrate` | prisma migrate dev |
+| `pnpm db:migrate:deploy` | prisma migrate deploy (prod/CI) |
+| `pnpm db:migrate:reset` | Reset + re-apply all migrations |
+| `pnpm db:seed` | Run seed script |
+| `pnpm db:generate` | Regenerate Prisma client |
+| `pnpm clean` | Remove all dist/ and node_modules/ |
 
 ### Smoke Tests (E2E)
 
@@ -351,11 +461,23 @@ powershell -ExecutionPolicy Bypass -File scripts/smoke/run-all.ps1 -BaseUrl "htt
 
 ## Architecture Notes
 
+### Booking Core (Single Authoritative Home)
+
+The booking domain lives in `packages/booking-core`. It is infrastructure-free:
+
+- `domain/` — state machine, timing policies, domain errors
+- `application/ports/` — interfaces only (no Prisma, no Redis)
+- `application/transition-booking.use-case.ts` — the one transition entry point
+
+The API and the Worker reach this package through Prisma adapters in
+`packages/database`, which implement the ports and open the transaction
+(including the resource advisory lock).
+
 ### Module Structure (Clean Architecture)
 
 Every feature module follows the same structure:
 
-```
+```text
 module/
 ├── domain/         # Pure business logic (no framework, no DB)
 ├── repositories/   # Data access layer (Prisma, Redis)
@@ -391,15 +513,33 @@ Use `ok(value)` / `err(error)` from `@reservio/shared` for functions that can fa
 ### Fastify Plugin Registration Order
 
 In `app.ts`, plugin order matters:
-`cors` → `cookie` → `auth` → `swagger` → `error-handler` → `health` → `identity` → `catalog` → `availability`
+`cors` → `cookie` → `auth` → `swagger` → `error-handler` → `health` → `identity` → `catalog` → `availability` → `bookings`
+
+### Background Worker
+
+The worker (`apps/worker`) is a BullMQ consumer on the `booking-jobs` queue. It
+processes two repeatable jobs at a 60-second interval:
+
+| Job | Purpose |
+| --- | ------- |
+| `pending-expiration` | Cancels pending bookings whose `pendingExpiresAt` has passed |
+| `booking-reminder` | Writes a `booking.reminder_sent` audit event for confirmed bookings due |
+
+Both jobs delegate state changes to the shared `TransitionBookingUseCase` in
+`packages/booking-core`. A worker retry cannot create a duplicate transition —
+the state machine and the optimistic concurrency check reject it.
+
+See `docs/phase-6-decisions.md` for the deliberate decision to use repeatable
+polling jobs instead of per-booking delayed jobs (and why `moveToDelayed` is
+not applicable in this architecture).
 
 ### Docker Port Mapping
 
-| Service    | Host Port | Container Port |
-| ---------- | --------- | -------------- |
-| PostgreSQL | **5433**  | 5432           |
-| Redis      | **6380**  | 6379           |
-| API        | **3000**  | 3000           |
+| Service | Host Port | Container Port |
+| ------- | --------- | -------------- |
+| PostgreSQL | **5433** | 5432 |
+| Redis | **6380** | 6379 |
+| API | **3000** | 3000 |
 
 Use `localhost:5433` / `localhost:6380` in `.env` when running API outside Docker.
 Use `postgres:5432` / `redis:6379` when everything runs inside Docker.
@@ -408,60 +548,63 @@ Use `postgres:5432` / `redis:6379` when everything runs inside Docker.
 
 ## Test Coverage (Phase 6 — 599 tests, 100% pass)
 
-| File                                              | Type        | Count |
-| ------------------------------------------------- | ----------- | ----- |
-| `packages/config/tests/env-schema.test.ts`        | Unit        | 7     |
-| `packages/shared/tests/errors.test.ts`            | Unit        | 54    |
-| `packages/shared/tests/result.test.ts`            | Unit        | 29    |
-| `packages/shared/tests/time.test.ts`              | Unit        | 52    |
-| `packages/redis/tests/client.test.ts`             | Integration | 12    |
-| `packages/database/tests/client.test.ts`          | Integration | 11    |
-| `packages/queue/tests/booking-queue.test.ts`      | Integration | 22    |
-| `apps/worker/tests/jobs.test.ts`                  | Integration | 32    |
-| `apps/api/tests/health.test.ts`                   | Integration | 13    |
-| `apps/api/tests/identity.test.ts`                 | Integration | 67    |
-| `apps/api/tests/business.test.ts`                 | Integration | 16    |
-| `apps/api/tests/catalog.test.ts`                  | Integration | 69    |
-| `apps/api/tests/catalog-resource.test.ts`         | Integration | 33    |
-| `apps/api/tests/catalog-service.test.ts`          | Integration | 35    |
-| `apps/api/tests/catalog-service-resource.test.ts` | Integration | 26    |
-| `apps/api/tests/availability.test.ts`             | Integration | 9     |
-| `apps/api/tests/availability-rules.test.ts`       | Integration | 29    |
-| `apps/api/tests/availability-exceptions.test.ts`  | Integration | 27    |
-| `apps/api/tests/availability-cache.test.ts`       | Integration | 3     |
-| `apps/api/tests/slot-engine.test.ts`              | Integration | 25    |
-| `apps/api/tests/booking.test.ts`                  | Integration | 17    |
-| `apps/api/tests/booking-idempotency.test.ts`      | Integration | 11    |
-| **Total Vitest**                                  |             | **599** |
-| `scripts/smoke/run-all.ps1`                       | E2E (Smoke) | **164 assertions** |
+| File | Type | Count |
+| ---- | ---- | ----- |
+| `packages/config/tests/env-schema.test.ts` | Unit | 7 |
+| `packages/shared/tests/errors.test.ts` | Unit | 54 |
+| `packages/shared/tests/result.test.ts` | Unit | 29 |
+| `packages/shared/tests/time.test.ts` | Unit | 52 |
+| `packages/redis/tests/client.test.ts` | Integration | 12 |
+| `packages/database/tests/client.test.ts` | Integration | 11 |
+| `packages/queue/tests/booking-queue.test.ts` | Integration | 22 |
+| `apps/worker/tests/jobs.test.ts` | Integration | 5 |
+| `apps/worker/tests/booking-reminder.test.ts` | Integration | 10 |
+| `apps/api/tests/health.test.ts` | Integration | 13 |
+| `apps/api/tests/identity.test.ts` | Integration | 67 |
+| `apps/api/tests/business.test.ts` | Integration | 16 |
+| `apps/api/tests/catalog.test.ts` | Integration | 69 |
+| `apps/api/tests/catalog-resource.test.ts` | Integration | 33 |
+| `apps/api/tests/catalog-service.test.ts` | Integration | 35 |
+| `apps/api/tests/catalog-service-resource.test.ts` | Integration | 26 |
+| `apps/api/tests/availability.test.ts` | Integration | 9 |
+| `apps/api/tests/availability-rules.test.ts` | Integration | 29 |
+| `apps/api/tests/availability-exceptions.test.ts` | Integration | 27 |
+| `apps/api/tests/availability-cache.test.ts` | Integration | 3 |
+| `apps/api/tests/slot-engine.test.ts` | Integration | 25 |
+| `apps/api/tests/booking.test.ts` | Integration | 17 |
+| `apps/api/tests/booking-idempotency.test.ts` | Integration | 11 |
+| `apps/api/tests/booking-concurrency.test.ts` | Concurrency | 9 |
+| **Total Vitest** | | **599** |
+| `scripts/smoke/run-all.ps1` | E2E (Smoke) | **164 assertions** |
 
 ---
 
 ## Phase Roadmap
 
-| Phase | Module                     | Status                    |
-| ----- | -------------------------- | ------------------------- |
-| 1     | Infrastructure Shell       | ✅ Complete (187 tests)   |
-| 2     | Identity & Access          | ✅ Complete (304 tests)   |
-| 3     | Business & Catalog (CRUD)  | ✅ Complete (471 tests)   |
-| 4     | Availability Engine        | ✅ Complete (571 tests)   |
-| 5     | Booking Engine             | ✅ Complete               |
-| 6     | V1 Operational Reliability | ✅ Complete               |
-| 7     | Frontend                   | 🔜 Next                  |
+| Phase | Module | Status |
+| ----- | ------ | ------ |
+| 0 | Architecture Risk Validation | ✅ Complete |
+| 1 | Infrastructure Shell | ✅ Complete |
+| 2 | Identity & Access | ✅ Complete |
+| 3 | Business & Catalog (CRUD) | ✅ Complete |
+| 4 | Availability Engine | ✅ Complete |
+| 5 | Booking Engine | ✅ Complete |
+| 6 | V1 Operational Reliability | ✅ Complete |
+| 7 | Quality & Handover | ✅ Complete |
 
 ---
 
 ## Environment Variables Reference
 
-| Variable                   | Required | Default        | Description                     |
-| -------------------------- | -------- | -------------- | ------------------------------- |
-| `NODE_ENV`                 | No       | `development`  | development / test / production |
-| `API_PORT`                 | No       | `3000`         | HTTP port                       |
-| `API_HOST`                 | No       | `0.0.0.0`      | Bind address                    |
-| `DATABASE_URL`             | **Yes**  | —              | PostgreSQL connection string    |
-| `REDIS_URL`                | **Yes**  | —              | Redis connection string         |
-| `ACCESS_TOKEN_PRIVATE_KEY` | **Yes**  | —              | Ed25519 private key (PEM)       |
-| `ACCESS_TOKEN_PUBLIC_KEY`  | **Yes**  | —              | Ed25519 public key (PEM)        |
-| `JWT_ISSUER`               | No       | `reservio`     | JWT iss claim                   |
-| `JWT_AUDIENCE`             | No       | `reservio-api` | JWT aud claim                   |
-| `WORKER_CONCURRENCY`       | No       | `5`            | BullMQ worker concurrency       |
+| Variable | Required | Default | Description |
+| -------- | -------- | ------- | ----------- |
+| `NODE_ENV` | No | `development` | development / test / production |
+| `API_PORT` | No | `3000` | HTTP port |
+| `API_HOST` | No | `0.0.0.0` | Bind address |
+| `DATABASE_URL` | **Yes** | — | PostgreSQL connection string |
+| `REDIS_URL` | **Yes** | — | Redis connection string |
+| `ACCESS_TOKEN_PRIVATE_KEY` | **Yes** | — | Ed25519 private key (PEM) |
+| `ACCESS_TOKEN_PUBLIC_KEY` | **Yes** | — | Ed25519 public key (PEM) |
+| `JWT_ISSUER` | No | `reservio` | JWT iss claim |
+| `JWT_AUDIENCE` | No | `reservio-api` | JWT aud claim |
+| `WORKER_CONCURRENCY` | No | `5` | BullMQ worker concurrency |
